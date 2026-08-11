@@ -2,8 +2,20 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDomainById } from "@/lib/domains";
 import { formatDate } from "@/lib/format";
+import { RefreshRdapButton } from "@/components/refresh-rdap-button";
 
 export const dynamic = "force-dynamic";
+
+function InfoRow({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <dt className="shrink-0 text-gray-500">{label}</dt>
+      <dd className="text-right font-medium text-gray-900">
+        {value ? value : <span className="font-normal text-gray-400">Not available</span>}
+      </dd>
+    </div>
+  );
+}
 
 export default async function DomainDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -19,8 +31,9 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
     notFound();
   }
 
+  const rdapAvailable = domain.rdapUpdatedAt !== null;
+
   const upcomingModules = [
-    { title: "Domain Information", description: "RDAP / WHOIS registration data" },
     { title: "DNS", description: "Record monitoring and resolution checks" },
     { title: "SSL", description: "Certificate validity and expiry tracking" },
     { title: "HTTP", description: "Uptime and response health checks" },
@@ -62,6 +75,45 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
             <dd className="text-gray-900">{formatDate(domain.updatedAt)}</dd>
           </div>
         </dl>
+      </section>
+
+      <section className="mb-10 rounded-lg border border-gray-200">
+        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+          <h2 className="text-sm font-semibold text-gray-900">Domain Information</h2>
+          <RefreshRdapButton id={domain.id} />
+        </div>
+
+        {rdapAvailable ? (
+          <dl className="divide-y divide-gray-100 text-sm">
+            <InfoRow label="Registrar" value={domain.registrar ?? undefined} />
+            <InfoRow
+              label="Registration"
+              value={
+                domain.registrationDate ? formatDate(new Date(domain.registrationDate)) : undefined
+              }
+            />
+            <InfoRow
+              label="Expiration"
+              value={
+                domain.expirationDate ? formatDate(new Date(domain.expirationDate)) : undefined
+              }
+            />
+            <InfoRow
+              label="Last updated"
+              value={domain.updatedDate ? formatDate(new Date(domain.updatedDate)) : undefined}
+            />
+            <InfoRow
+              label="Nameservers"
+              value={domain.nameservers.length > 0 ? domain.nameservers.join(", ") : undefined}
+            />
+            <InfoRow
+              label="Status"
+              value={domain.rdapStatus.length > 0 ? domain.rdapStatus.join(", ") : undefined}
+            />
+          </dl>
+        ) : (
+          <p className="px-4 py-6 text-sm text-gray-500">RDAP information unavailable.</p>
+        )}
       </section>
 
       <section>

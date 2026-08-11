@@ -1,14 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createDomain, deleteDomain } from "./repository";
+import { createDomain, deleteDomain, getDomainById, updateDomainRdap } from "./repository";
 import { normalizeHostname } from "./validation";
+import { queryRdap } from "@/lib/rdap";
 
 export type DomainActionResult = { ok: true; hostname: string } | { ok: false; error: string };
 
+const RDAP_UNAVAILABLE_MESSAGE = "RDAP information is currently unavailable.";
+
 /**
  * Create a domain from raw user input.
- * Validation and normalization happen here, before touching the database.
+ *
+ * Validation and normalization happen here. The domain row is created first;
+ * an RDAP enrichment query then runs best-effort — a failing RDAP service
+ * must never prevent the domain from being created.
  */
 export async function createDomainAction(input: string): Promise<DomainActionResult> {
   const result = normalizeHostname(input);
@@ -17,20 +23,54 @@ export async function createDomainAction(input: string): Promise<DomainActionRes
     return { ok: false, error: result.error };
   }
 
+  let domain;
   try {
-    const domain = createDomain(result.hostname);
-
-    if (!domain) {
-      return { ok: false, error: "This domain is already being monitored." };
-    }
-
-    revalidatePath("/");
-    return { ok: true, hostname: domain.hostname };
+    domain = createDomain(result.hostname);
   } catch {
     // Unique-constraint race: another request inserted the same hostname
     // between our existence check and the insert.
     return { ok: false, error: "This domain is already being monitored." };
   }
+
+  if (!domain) {
+    return { ok: false, error: "This domain is already being monitored." };
+  }
+
+  try {
+    const rdap = await queryRdap(domain.hostname);
+    updateDomainRdap(domain.id, rdap);
+  } catch (error) {
+    // Domain creation still succeeds; the detail page shows
+    // "RDAP information unavailable." with a manual Refresh option.
+    console.error(`[rdap] initial query failed for ${domain.hostname}:`, error);
+  }
+
+  revalidatePath("/");
+  return { ok: true, hostname: domain.hostname };
+}
+
+/**
+ * Re-run the RDAP query for an existing domain and persist the result.
+ * Returns a user-safe error message on failure (details go to server logs).
+ */
+export async function refreshRdapAction(id: number): Promise<DomainActionResult> {
+  const domain = getDomainById(id);
+
+  if (!domain) {
+    return { ok: false, error: "Domain not found." };
+  }
+
+  try {
+    const rdap = await queryRdap(domain.hostname);
+    updateDomainRdap(id, rdap);
+  } catch (error) {
+    console.error(`[rdap] refresh failed for domain ${id} (${domain.hostname}):`, error);
+    return { ok: false, error: RDAP_UNAVAILABLE_MESSAGE };
+  }
+
+  revalidatePath(`/domains/${id}`);
+  revalidatePath("/");
+  return { ok: true, hostname: domain.hostname };
 }
 
 export async function deleteDomainAction(id: number): Promise<DomainActionResult> {

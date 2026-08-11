@@ -10,7 +10,7 @@ export default function Home() {
   const domains = getDomains();
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-12">
+    <main className="mx-auto w-full max-w-4xl px-4 py-12">
       <header className="mb-8">
         <h1 className="text-2xl font-bold tracking-tight">Domain Monitor</h1>
         <p className="mt-1 text-sm text-gray-500">Open-source domain lifecycle monitoring.</p>
@@ -42,6 +42,9 @@ export default function Home() {
                     Status
                   </th>
                   <th scope="col" className="px-4 py-3 font-medium">
+                    Expiration
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-medium">
                     Created
                   </th>
                   <th scope="col" className="px-4 py-3 text-right font-medium">
@@ -58,6 +61,13 @@ export default function Home() {
                         <span className="size-1.5 rounded-full bg-green-500" />
                         {domain.status === "active" ? "Active" : domain.status}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {domain.expirationDate ? (
+                        <span>Expires: {formatDate(new Date(domain.expirationDate))}</span>
+                      ) : (
+                        <span className="text-gray-400">Expiration unavailable</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{formatDate(domain.createdAt)}</td>
                     <td className="px-4 py-3">

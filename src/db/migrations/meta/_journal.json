@@ -8,6 +8,13 @@
       "when": 1786459459901,
       "tag": "0000_careless_penance",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786462516299,
+      "tag": "0001_bright_old_lace",
+      "breakpoints": true
     }
   ]
 }
