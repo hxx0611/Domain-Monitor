@@ -2,11 +2,20 @@
 
 A lightweight, modern, self-hostable domain lifecycle monitoring platform.
 
-## Features (Planned)
+## Features
 
-- Domain registration & expiration tracking
+### V0.1 — Domain Management (current)
+
+- Add domains with automatic normalization (`https://example.com/path` → `example.com`)
+- List all monitored domains
+- View per-domain detail pages (with placeholders for upcoming monitoring modules)
+- Delete domains with confirmation
+
+### Planned
+
+- RDAP / WHOIS registration data
 - DNS record monitoring
-- SSL certificate expiration alerts
+- SSL certificate expiry tracking
 - HTTP health checks
 - Notification integrations
 - Dashboard with overview of all monitored domains
@@ -90,8 +99,11 @@ pnpm format:check
 Domain Monitor/
 ├── src/
 │   ├── app/            # Next.js App Router pages
-│   ├── components/     # Shared React components
-│   ├── lib/            # Utility functions & shared logic
+│   │   └── domains/[id]/  # Domain detail page
+│   ├── components/     # React components (client & server)
+│   ├── lib/
+│   │   ├── domains/    # Domain feature: validation, repository, server actions
+│   │   └── format.ts   # Shared formatting helpers
 │   ├── db/             # Drizzle schema, migrations & DB connection
 │   └── types/          # Shared TypeScript type definitions
 ├── docs/               # Project documentation
@@ -102,12 +114,12 @@ Domain Monitor/
 
 ## Roadmap
 
-- [ ] **Phase 1:** Project foundation & dev environment
-- [ ] **Phase 2:** Domain CRUD & RDAP integration
-- [ ] **Phase 3:** DNS monitoring
-- [ ] **Phase 4:** SSL certificate monitoring
-- [ ] **Phase 5:** HTTP health checks
-- [ ] **Phase 6:** Notification system
+- [x] **V0.1:** Domain management (add / list / view / delete)
+- [ ] **V0.2:** RDAP / WHOIS integration
+- [ ] **V0.3:** DNS monitoring
+- [ ] **V0.4:** SSL certificate monitoring
+- [ ] **V0.5:** HTTP health checks
+- [ ] **V0.6:** Notification system
 
 ## Contributing
 

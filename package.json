@@ -23,7 +23,8 @@
     "drizzle-orm": "^0.44.7",
     "next": "^15.5.23",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",

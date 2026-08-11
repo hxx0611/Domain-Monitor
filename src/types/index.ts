@@ -1,1 +1,1 @@
-export { type Domain } from "./domain";
+export type { Domain, NewDomain } from "@/db/schema";
