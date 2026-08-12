@@ -29,6 +29,12 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Ensure the SQLite data directory exists (fresh checkouts have none).
+      # The app itself also creates it on startup (src/db/index.ts); this is
+      # defense in depth for the test environment.
+      - name: Prepare data directory
+        run: mkdir -p data
+
       - name: Unit tests
         run: pnpm test
 
