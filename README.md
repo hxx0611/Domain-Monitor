@@ -4,16 +4,24 @@ A lightweight, modern, self-hostable domain lifecycle monitoring platform.
 
 ## Features
 
-### V0.1 — Domain Management (current)
+### V0.1 — Domain Management
 
 - Add domains with automatic normalization (`https://example.com/path` → `example.com`)
 - List all monitored domains
 - View per-domain detail pages (with placeholders for upcoming monitoring modules)
 - Delete domains with confirmation
 
+### V0.2 — RDAP / WHOIS Integration (current)
+
+- Live RDAP enrichment via the IANA bootstrap registry (590+ TLDs)
+  - Registrar, registration / expiration / last-updated dates
+  - Nameservers and domain status codes
+- Best-effort enrichment on domain creation (a failing RDAP query never blocks adding a domain)
+- Manual "Refresh RDAP" button on the detail page
+- Resilient fallbacks: RDAP-unavailable domains stay usable with a manual retry path
+
 ### Planned
 
-- RDAP / WHOIS registration data
 - DNS record monitoring
 - SSL certificate expiry tracking
 - HTTP health checks
@@ -115,7 +123,7 @@ Domain Monitor/
 ## Roadmap
 
 - [x] **V0.1:** Domain management (add / list / view / delete)
-- [ ] **V0.2:** RDAP / WHOIS integration
+- [x] **V0.2:** RDAP / WHOIS integration
 - [ ] **V0.3:** DNS monitoring
 - [ ] **V0.4:** SSL certificate monitoring
 - [ ] **V0.5:** HTTP health checks
