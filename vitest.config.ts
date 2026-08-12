@@ -9,6 +9,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
+      // `server-only` throws outside Next.js; stub it for unit tests so the
+      // repository layer (which imports it as a guard) stays testable.
+      "server-only": path.resolve(__dirname, "test/stubs/server-only.ts"),
     },
   },
 });
