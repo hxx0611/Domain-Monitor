@@ -1,148 +1,141 @@
 # Domain Monitor
 
-A lightweight, modern, self-hostable domain lifecycle monitoring platform.
+A lightweight, self-hostable domain lifecycle monitoring platform for RDAP, DNS, and domain status tracking.
+
+[![CI](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/hxx0611/Domain-Monitor?sort=semver)](https://github.com/hxx0611/Domain-Monitor/releases)
+
+Domain Monitor helps you keep track of the domains you own: it stores them locally, looks up registration data via RDAP, and lets you run DNS checks to see how your records evolve over time.
+
+## Screenshots
+
+Domain details view with RDAP information, DNS records, and DNS change history.
+
+![Domain details view](docs/screenshots/domain-details.png)
 
 ## Features
 
-### V0.1 — Domain Management
+### Domain Management
 
-- Add domains with automatic normalization (`https://example.com/path` → `example.com`)
-- List all monitored domains
-- View per-domain detail pages (with placeholders for upcoming monitoring modules)
-- Delete domains with confirmation
+- Add and manage monitored domains
+- Domain normalization and validation (accepts `https://example.com/path`, stores `example.com`)
+- Self-hosted local storage (SQLite)
+- Domain detail pages
 
-### V0.2 — RDAP / WHOIS Integration
+### RDAP Information
 
-- Live RDAP enrichment via the IANA bootstrap registry (590+ TLDs)
-  - Registrar, registration / expiration / last-updated dates
-  - Nameservers and domain status codes
-- Best-effort enrichment on domain creation (a failing RDAP query never blocks adding a domain)
-- Manual "Refresh RDAP" button on the detail page
-- Resilient fallbacks: RDAP-unavailable domains stay usable with a manual retry path
+- Automatic RDAP lookup on domain creation
+- IANA bootstrap routing (590+ TLDs)
+- Registrar information
+- Registration / expiration / last-updated dates
+- Nameservers and RDAP status
+- Manual RDAP refresh
 
-### V0.3 — DNS Monitoring (current)
+### DNS Monitoring
 
-- Manual DNS checks (no automatic scheduling in this version)
-- Atomic snapshots: a check stores the full DNS state at one point in time
-- Record types monitored: A, AAAA, CNAME, MX, NS, TXT, CAA
-- Change detection between snapshots (added / removed records)
-- DNS history with per-check change counts
-- DNS-over-HTTPS via the public Cloudflare DoH JSON endpoint
-  (resolver is abstracted and swappable via `DNS_DOH_ENDPOINT`)
-- Resilient behavior: a failed or partial query never deletes old data
-  and never produces false "removed" events
+- DNS-over-HTTPS based monitoring (Cloudflare DoH)
+- A / AAAA / CNAME / MX / NS / TXT / CAA records
+- Historical DNS snapshots
+- Added / removed record detection
+- TTL-only changes ignored
+- Atomic failed-check handling (a partial failure never deletes old data)
+- Manual DNS checks
 
-### Planned
+## Current Status
 
-- SSL certificate expiry tracking
-- HTTP health checks
-- Notification integrations
-- Dashboard with overview of all monitored domains
+**Current release: v0.3.0**
 
-## Tech Stack
+Supported today:
 
-| Layer        | Technology       |
-| ------------ | ---------------- |
-| Framework    | Next.js 15       |
-| Language     | TypeScript       |
-| Styling      | Tailwind CSS     |
-| ORM          | Drizzle ORM      |
-| Database     | SQLite           |
-| Package Mgr  | pnpm             |
+- Domain management
+- RDAP information
+- DNS monitoring
 
-## Getting Started
+DNS checks are currently manual; automatic scheduling is planned for a future release.
 
-### Prerequisites
-
-- Node.js >= 18
-- pnpm (recommended)
-
-### Install
+## Quick Start
 
 ```bash
+git clone https://github.com/hxx0611/Domain-Monitor.git
+cd Domain-Monitor
 pnpm install
-```
-
-### Setup Environment
-
-```bash
 cp .env.example .env
-```
-
-### Run Development Server
-
-```bash
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000).
 
-### Database
+Requires Node.js >= 18 and [pnpm](https://pnpm.io/). Works on Linux, macOS, and Windows.
 
-Generate migration files:
-
-```bash
-pnpm db:generate
-```
-
-Run migrations:
+## Testing
 
 ```bash
-pnpm db:migrate
+pnpm test
 ```
 
-Open Drizzle Studio (visual DB browser):
+Current test suite: **115 tests**, covering domain validation, RDAP parsing, DNS normalization, DNS diffing, the DNS service, and the data repositories.
 
-```bash
-pnpm db:studio
-```
-
-### Build
-
-```bash
-pnpm build
-```
-
-### Lint & Format
+Also run before pushing changes:
 
 ```bash
 pnpm lint
-pnpm lint:fix
-pnpm format
 pnpm format:check
+pnpm build
 ```
 
-## Project Structure
+## Architecture
 
 ```
-Domain Monitor/
-├── src/
-│   ├── app/            # Next.js App Router pages
-│   │   └── domains/[id]/  # Domain detail page
-│   ├── components/     # React components (client & server)
-│   ├── lib/
-│   │   ├── domains/    # Domain feature: validation, repository, server actions
-│   │   └── format.ts   # Shared formatting helpers
-│   ├── db/             # Drizzle schema, migrations & DB connection
-│   └── types/          # Shared TypeScript type definitions
-├── docs/               # Project documentation
-├── public/             # Static assets
-├── .github/            # GitHub Actions workflows
-└── data/               # SQLite database files (git-ignored)
+UI (Next.js App Router)
+        ↓
+Server Actions
+        ↓
+Domain / RDAP / DNS services
+        ↓
+Repository
+        ↓
+SQLite
+```
+
+- **Next.js App Router** + Server Actions
+- **Drizzle ORM** with **SQLite** (migrations in `src/db/migrations/`)
+- **Cloudflare DoH** for DNS queries (resolver swappable via `DNS_DOH_ENDPOINT`)
+- **IANA RDAP bootstrap** for registration data
+
+See [docs/development.md](docs/development.md) for detailed development notes.
+
+## Database
+
+SQLite via Drizzle ORM. Manage the schema with the built-in commands:
+
+```bash
+pnpm db:generate   # Generate migration files
+pnpm db:migrate    # Run migrations
+pnpm db:studio     # Open the visual database browser
 ```
 
 ## Roadmap
 
-- [x] **V0.1:** Domain management (add / list / view / delete)
-- [x] **V0.2:** RDAP / WHOIS integration
-- [x] **V0.3:** DNS monitoring
-- [ ] **V0.4:** SSL certificate monitoring
-- [ ] **V0.5:** HTTP health checks
-- [ ] **V0.6:** Notification system
+- [x] **V0.1** — Domain management
+- [x] **V0.2** — RDAP / WHOIS integration
+- [x] **V0.3** — DNS monitoring
+- [ ] **V0.4** — SSL certificate monitoring
+- [ ] **V0.5** — HTTP health checks
+- [ ] **V0.6** — Notification system
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome.
+
+```bash
+pnpm install
+pnpm test
+pnpm lint
+pnpm build
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
 
 ## License
 
