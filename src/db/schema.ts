@@ -91,6 +91,67 @@ export type NewDnsSnapshot = InferInsertModel<typeof dnsSnapshots>;
 export type DnsRecordRow = InferSelectModel<typeof dnsRecords>;
 export type NewDnsRecord = InferInsertModel<typeof dnsRecords>;
 
-export const schema = { domains, dnsSnapshots, dnsRecords };
+/**
+ * SSL certificate monitoring (V0.4).
+ *
+ * Every successful TLS check stores one row in `sslSnapshots`; the leaf
+ * certificate observed at that moment lives in `sslCertificates` (one row
+ * per snapshot). The domain can have many snapshots — history is kept,
+ * mirroring the DNS snapshot design.
+ *
+ * `fingerprint256` is the certificate identity key used for change
+ * detection: a different fingerprint means the certificate was replaced.
+ * `status` is the normalized check outcome (see src/lib/ssl/types.ts);
+ * `error` carries a user-safe message when status is 'error'.
+ */
+export const sslSnapshots = sqliteTable(
+  "ssl_snapshots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    domainId: integer("domain_id")
+      .notNull()
+      .references(() => domains.id, { onDelete: "cascade" }),
+    checkedAt: integer("checked_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    tlsVersion: text("tls_version"),
+    cipherName: text("cipher_name"),
+    status: text("status").notNull(),
+    error: text("error"),
+  },
+  (table) => [index("ssl_snapshots_domain_id_idx").on(table.domainId)],
+);
+
+export const sslCertificates = sqliteTable(
+  "ssl_certificates",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    snapshotId: integer("snapshot_id")
+      .notNull()
+      .references(() => sslSnapshots.id, { onDelete: "cascade" }),
+    fingerprint256: text("fingerprint256").notNull(),
+    subject: text("subject"),
+    issuer: text("issuer"),
+    /** ISO 8601 (UTC). */
+    validFrom: text("valid_from"),
+    /** ISO 8601 (UTC). */
+    validTo: text("valid_to"),
+    serialNumber: text("serial_number"),
+    /** JSON-encoded string array of SAN entries. */
+    san: text("san"),
+    /** 0/1 — certificate is self-signed (ca flag). */
+    isSelfSigned: integer("is_self_signed"),
+    /** 0/1 — the certificate's SAN covers the queried hostname. */
+    hostnameMatched: integer("hostname_matched"),
+  },
+  (table) => [index("ssl_certificates_snapshot_id_idx").on(table.snapshotId)],
+);
+
+export type SslSnapshot = InferSelectModel<typeof sslSnapshots>;
+export type NewSslSnapshot = InferInsertModel<typeof sslSnapshots>;
+export type SslCertificateRow = InferSelectModel<typeof sslCertificates>;
+export type NewSslCertificate = InferInsertModel<typeof sslCertificates>;
+
+export const schema = { domains, dnsSnapshots, dnsRecords, sslSnapshots, sslCertificates };
 
 export type Schema = typeof schema;

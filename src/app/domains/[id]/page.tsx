@@ -4,9 +4,12 @@ import { getDomainById } from "@/lib/domains";
 import { formatDate } from "@/lib/format";
 import { RefreshRdapButton } from "@/components/refresh-rdap-button";
 import { CheckDnsButton } from "@/components/check-dns-button";
+import { CheckSslButton } from "@/components/check-ssl-button";
 import { getDnsSnapshots, getLatestDnsSnapshot } from "@/lib/dns/repository";
 import { diffDnsSnapshots } from "@/lib/dns";
 import { DNS_RECORD_TYPES, type DnsRecord } from "@/lib/dns";
+import { getSslHistory, getLatestSslSnapshot } from "@/lib/ssl/repository";
+import { daysRemaining, type SslStatus } from "@/lib/ssl";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +17,19 @@ function InfoRow({ label, value }: { label: string; value?: string }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3">
       <dt className="shrink-0 text-gray-500">{label}</dt>
-      <dd className="text-right font-medium text-gray-900">
+      <dd className="min-w-0 break-words text-right font-medium text-gray-900">
         {value ? value : <span className="font-normal text-gray-400">Not available</span>}
       </dd>
+    </div>
+  );
+}
+
+/** Fingerprint row: hex strings need break-all to wrap on narrow screens. */
+function FingerprintRow({ value }: { value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <dt className="shrink-0 text-gray-500">Fingerprint</dt>
+      <dd className="min-w-0 break-all text-right font-mono text-xs text-gray-900">{value}</dd>
     </div>
   );
 }
@@ -26,6 +39,46 @@ function formatRecordValue(record: DnsRecord): string {
   return record.type === "MX" && record.priority !== undefined
     ? `${record.priority} ${record.value}`
     : record.value;
+}
+
+/** SSL status badge: label + color classes, mirroring the DNS status pill. */
+function SslStatusBadge({ status }: { status: SslStatus }) {
+  const config: Record<SslStatus, { label: string; className: string; dot: string }> = {
+    ok: {
+      label: "Valid",
+      className: "bg-green-50 text-green-700",
+      dot: "bg-green-500",
+    },
+    expires_soon: {
+      label: "Expires soon",
+      className: "bg-amber-50 text-amber-700",
+      dot: "bg-amber-500",
+    },
+    expired: {
+      label: "Expired",
+      className: "bg-red-50 text-red-700",
+      dot: "bg-red-500",
+    },
+    mismatch: {
+      label: "Hostname mismatch",
+      className: "bg-red-50 text-red-700",
+      dot: "bg-red-500",
+    },
+    error: {
+      label: "Error",
+      className: "bg-gray-100 text-gray-600",
+      dot: "bg-gray-400",
+    },
+  };
+  const { label, className, dot } = config[status];
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}
+    >
+      <span className={`size-1.5 rounded-full ${dot}`} />
+      {label}
+    </span>
+  );
 }
 
 export default async function DomainDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -49,8 +102,10 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
   // Latest check's changes = diff between the two most recent snapshots.
   const latestChanges = history.length >= 2 ? diffDnsSnapshots(history[1], history[0]) : [];
 
+  const latestSsl = getLatestSslSnapshot(domain.id);
+  const sslHistory = getSslHistory(domain.id, 10);
+
   const upcomingModules = [
-    { title: "SSL", description: "Certificate validity and expiry tracking" },
     { title: "HTTP", description: "Uptime and response health checks" },
   ] as const;
 
@@ -216,6 +271,98 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
                         : changeCount === 0
                           ? "No changes"
                           : `${changeCount} record${changeCount === 1 ? "" : "s"} changed`}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-500">No checks yet.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="mb-10 rounded-lg border border-gray-200">
+        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+          <h2 className="text-sm font-semibold text-gray-900">SSL Certificate Monitoring</h2>
+          <CheckSslButton domainId={domain.id} />
+        </div>
+
+        <div className="border-b border-gray-100 px-4 py-3 text-sm">
+          <span className="text-gray-500">Last checked:</span>{" "}
+          <span className="font-medium text-gray-900">
+            {latestSsl ? formatDate(latestSsl.checkedAt) : "Never checked"}
+          </span>
+        </div>
+
+        {latestSsl && latestSsl.status !== "error" && latestSsl.certificate ? (
+          <>
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 text-sm">
+              <dt className="text-gray-500">Certificate status</dt>
+              <dd>
+                <SslStatusBadge status={latestSsl.status} />
+                {latestSsl.certificate.validTo ? (
+                  <span className="ml-2 text-gray-600">
+                    {formatDate(new Date(latestSsl.certificate.validTo))}
+                    {` (${daysRemaining(new Date(latestSsl.certificate.validTo))} days remaining)`}
+                  </span>
+                ) : null}
+              </dd>
+            </div>
+            <dl className="divide-y divide-gray-100 text-sm">
+              <InfoRow label="Issuer" value={latestSsl.certificate.issuer ?? undefined} />
+              <InfoRow label="Subject" value={latestSsl.certificate.subject ?? undefined} />
+              <InfoRow
+                label="SAN"
+                value={
+                  latestSsl.certificate.san.length > 0
+                    ? latestSsl.certificate.san.join(", ")
+                    : undefined
+                }
+              />
+              <FingerprintRow value={latestSsl.certificate.fingerprint256} />
+              <InfoRow label="TLS version" value={latestSsl.tlsVersion ?? undefined} />
+              <InfoRow label="Cipher" value={latestSsl.cipherName ?? undefined} />
+            </dl>
+          </>
+        ) : latestSsl && latestSsl.status === "error" ? (
+          <p className="px-4 py-6 text-sm text-gray-500">SSL monitoring unavailable.</p>
+        ) : null}
+
+        <div className="px-4 py-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            SSL History
+          </h3>
+          {sslHistory.length > 0 ? (
+            <ul className="divide-y divide-gray-50 text-sm">
+              {sslHistory.map((snapshot, index) => {
+                const previous = index + 1 < sslHistory.length ? sslHistory[index + 1] : undefined;
+                const replaced =
+                  previous &&
+                  previous.certificate &&
+                  snapshot.certificate &&
+                  previous.certificate.fingerprint256 !== snapshot.certificate.fingerprint256;
+                return (
+                  <li key={snapshot.id} className="flex items-center justify-between gap-3 py-1.5">
+                    <span className="text-gray-900">{formatDate(snapshot.checkedAt)}</span>
+                    <span
+                      className={
+                        snapshot.status === "expired" || snapshot.status === "mismatch"
+                          ? "font-medium text-red-600"
+                          : snapshot.status === "expires_soon"
+                            ? "font-medium text-amber-600"
+                            : snapshot.status === "error"
+                              ? "text-gray-500"
+                              : "text-gray-500"
+                      }
+                    >
+                      {previous === undefined
+                        ? "First check"
+                        : snapshot.status === "error"
+                          ? "Unavailable"
+                          : replaced
+                            ? "Certificate replaced"
+                            : "No changes"}
                     </span>
                   </li>
                 );
