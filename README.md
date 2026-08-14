@@ -52,9 +52,18 @@ Domain details view with RDAP information, DNS records, and DNS change history.
 - SSL check history
 - Manual SSL checks
 
+### HTTP Health Checks
+
+- HTTP status monitoring (status code classification)
+- Response-time tracking
+- Redirect tracking (count and final URL)
+- Connection-failure detection (down)
+- HTTP check history
+- Manual HTTP checks
+
 ## Current Status
 
-**Current release: v0.4.0 — SSL Certificate Monitoring**
+**Current release: v0.5.0 — HTTP Health Checks**
 
 Supported today:
 
@@ -63,7 +72,7 @@ Supported today:
 - DNS monitoring
 - SSL certificate monitoring
 
-DNS and SSL checks are currently manual; automatic scheduling is planned for a future release.
+DNS, SSL and HTTP checks are currently manual; automatic scheduling is planned for a future release.
 
 ## Quick Start
 
@@ -85,7 +94,7 @@ Requires Node.js >= 18 and [pnpm](https://pnpm.io/). Works on Linux, macOS, and 
 pnpm test
 ```
 
-Current test suite: **194 tests**, covering domain validation, RDAP parsing, DNS normalization and diffing, SSL certificate parsing and diffing, the DNS/SSL services, and the data repositories.
+Current test suite: **268 tests**, covering domain validation, RDAP parsing, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, and the data repositories.
 
 Also run before pushing changes:
 
@@ -132,7 +141,7 @@ pnpm db:studio     # Open the visual database browser
 - [x] **V0.2** — RDAP / WHOIS integration
 - [x] **V0.3** — DNS monitoring
 - [x] **V0.4** — SSL certificate monitoring
-- [ ] **V0.5** — HTTP health checks
+- [x] **V0.5** — HTTP health checks
 - [ ] **V0.6** — Notification system
 
 ## Contributing
