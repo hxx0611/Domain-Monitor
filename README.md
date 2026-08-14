@@ -61,9 +61,18 @@ Domain details view with RDAP information, DNS records, and DNS change history.
 - HTTP check history
 - Manual HTTP checks
 
+### Notification System
+
+- Domain lifecycle events (DNS / SSL / HTTP check events)
+- Notification channels: **Email API** and **Webhook**
+- Rule-based delivery matching (global or per-domain rules)
+- Delivery history with status tracking (pending / sending / sent / failed)
+- Manual retry for failed deliveries
+- SSRF-guarded outbound requests (HTTPS only, per-redirect re-validation)
+
 ## Current Status
 
-**Current release: v0.5.0 — HTTP Health Checks**
+**Current release: v0.6.0 — Notification System**
 
 Supported today:
 
@@ -71,8 +80,12 @@ Supported today:
 - RDAP information
 - DNS monitoring
 - SSL certificate monitoring
+- HTTP health checks
+- Notification system (email / webhook channels, rules, delivery history, manual retry)
 
 DNS, SSL and HTTP checks are currently manual; automatic scheduling is planned for a future release.
+
+The notification pipeline (events, rules, deliveries, senders, and the notification UI) is fully implemented, but **automatic event-to-delivery generation requires a background worker / scheduler, which is planned for V0.7** — no deliveries are generated automatically yet. Retrying a failed delivery from the UI works end-to-end.
 
 ## Quick Start
 
@@ -94,7 +107,7 @@ Requires Node.js >= 18 and [pnpm](https://pnpm.io/). Works on Linux, macOS, and 
 pnpm test
 ```
 
-Current test suite: **268 tests**, covering domain validation, RDAP parsing, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, and the data repositories.
+Current test suite: **419 tests**, covering domain validation, RDAP parsing, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine, SSRF-guarded webhook and email senders, and the data repositories.
 
 Also run before pushing changes:
 
@@ -142,7 +155,7 @@ pnpm db:studio     # Open the visual database browser
 - [x] **V0.3** — DNS monitoring
 - [x] **V0.4** — SSL certificate monitoring
 - [x] **V0.5** — HTTP health checks
-- [ ] **V0.6** — Notification system
+- [x] **V0.6** — Notification system
 
 ## Contributing
 
