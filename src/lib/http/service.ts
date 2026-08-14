@@ -18,8 +18,9 @@
 import { getDomainById } from "@/lib/domains";
 import { fetchHttpStatus, HttpError, type HttpClientOptions } from "./client";
 import { classifyHttpStatus } from "./normalize";
-import { createHttpSnapshot, type HttpDb } from "./repository";
-import type { HttpCheckResult } from "./types";
+import { createHttpSnapshot, getLatestHttpSnapshot, type HttpDb } from "./repository";
+import { httpStatusChangeEvent } from "@/lib/notifications/events";
+import type { HttpCheckResult, HttpSnapshot } from "./types";
 
 export interface HttpServiceOptions {
   /** Per-request client options — tests inject a fake fetch + lookup. */
@@ -58,14 +59,32 @@ export async function checkHttp(
   inFlight.add(domainId);
 
   try {
+    const previous = getLatestHttpSnapshot(domainId, options.db);
+
     let raw: Awaited<ReturnType<typeof fetchHttpStatus>>;
     try {
       // hostname comes exclusively from the stored domain row.
       raw = await fetchHttpStatus(domain.hostname, options.clientOptions);
     } catch (error) {
       // Transport/DNS/timeout/SSRF-blocked → record an error snapshot;
-      // never touch prior data.
+      // never touch prior data. The status transition to "error" is still
+      // an event-worthy change (e.g. ok → error).
       console.error(`[http] check failed for domain ${domainId} (${domain.hostname}):`, error);
+      const errorSnapshot: HttpSnapshot = {
+        id: 0,
+        domainId,
+        checkedAt: new Date(),
+        status: "error",
+        redirected: false,
+        redirectCount: 0,
+        error: "HTTP monitoring unavailable.",
+      };
+      const errorEvent = httpStatusChangeEvent(
+        domainId,
+        previous,
+        errorSnapshot,
+        errorSnapshot.checkedAt,
+      );
       try {
         createHttpSnapshot(
           {
@@ -76,6 +95,7 @@ export async function checkHttp(
             error: "HTTP monitoring unavailable.",
           },
           options.db,
+          errorEvent ? [errorEvent] : [],
         );
       } catch (dbError) {
         console.error(`[http] failed to persist error snapshot for domain ${domainId}:`, dbError);
@@ -85,6 +105,18 @@ export async function checkHttp(
 
     const status = classifyHttpStatus(raw.status);
     const checkedAt = new Date();
+    const current: HttpSnapshot = {
+      id: 0,
+      domainId,
+      checkedAt,
+      status,
+      httpStatus: raw.status,
+      responseTimeMs: raw.responseTimeMs,
+      redirected: raw.redirected,
+      redirectCount: raw.redirectCount,
+      finalUrl: raw.finalUrl,
+    };
+    const event = httpStatusChangeEvent(domainId, previous, current, checkedAt);
     const snapshotId = createHttpSnapshot(
       {
         domainId,
@@ -96,6 +128,7 @@ export async function checkHttp(
         finalUrl: raw.finalUrl,
       },
       options.db,
+      event ? [event] : [],
     );
 
     return { ok: true, snapshotId, checkedAt };

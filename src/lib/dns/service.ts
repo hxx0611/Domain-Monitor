@@ -15,6 +15,7 @@ import { queryDnsRecords, DnsError, type DnsClientOptions } from "./client";
 import { diffDnsSnapshots } from "./diff";
 import { sortRecords } from "./normalize";
 import { createDnsSnapshot, getLatestDnsSnapshot, type DnsDb } from "./repository";
+import { dnsChangesToEvents } from "@/lib/notifications/events";
 import { DNS_RECORD_TYPES, type DnsCheckResult, type DnsRecord } from "./types";
 
 export interface DnsServiceOptions {
@@ -73,7 +74,12 @@ export async function checkDns(
     // First check (no previous snapshot) → no change events.
     const changes = previous ? diffDnsSnapshots(previous, current) : [];
 
-    const snapshotId = createDnsSnapshot(domainId, records, options.db);
+    const snapshotId = createDnsSnapshot(
+      domainId,
+      records,
+      options.db,
+      dnsChangesToEvents(domainId, changes, checkedAt),
+    );
 
     return { ok: true, snapshotId, checkedAt, changes };
   } finally {

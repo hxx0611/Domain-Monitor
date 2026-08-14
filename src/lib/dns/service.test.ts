@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { domains, dnsRecords, dnsSnapshots } from "@/db/schema";
+import { domains, dnsRecords, dnsSnapshots, notificationEvents } from "@/db/schema";
 import { createTestDb } from "../../../test/helpers";
 import { queryDnsRecords } from "./client";
 import { checkDns } from "./service";
@@ -208,5 +208,74 @@ describe("createDnsSnapshot via repository", () => {
     expect(a?.ttl).toBe(300);
     expect(mx?.priority).toBe(10);
     expect(mx?.ttl).toBeNull();
+  });
+});
+
+describe("checkDns notification events (V0.6)", () => {
+  const db = createTestDb();
+  let domainId = 0;
+
+  beforeEach(() => {
+    db.delete(notificationEvents).run();
+    db.delete(dnsRecords).run();
+    db.delete(dnsSnapshots).run();
+    db.delete(domains).run();
+    const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
+    domainId = domain.id;
+    mockedGetDomain.mockReturnValue({ id: domain.id, hostname: "example.com" } as never);
+    mockedQuery.mockReset();
+  });
+
+  function eventRows() {
+    return db.select().from(notificationEvents).all();
+  }
+
+  it("produces zero events on the first check", async () => {
+    mockClient({ A: [aRecord("1.2.3.4")] });
+    await checkDns(domainId, { db });
+    expect(eventRows()).toHaveLength(0);
+  });
+
+  it("produces one event when a record is added", async () => {
+    mockClient({ A: [aRecord("1.2.3.4")] });
+    await checkDns(domainId, { db });
+
+    mockClient({ A: [aRecord("1.2.3.4"), aRecord("5.6.7.8")] });
+    await checkDns(domainId, { db });
+
+    const events = eventRows();
+    expect(events).toHaveLength(1);
+    expect(events[0].source).toBe("dns");
+    expect(events[0].eventType).toBe("dns_record_added");
+    expect(events[0].dedupKey).toContain("5.6.7.8");
+  });
+
+  it("produces one event when a record is removed", async () => {
+    mockClient({ A: [aRecord("1.2.3.4"), aRecord("5.6.7.8")] });
+    await checkDns(domainId, { db });
+
+    mockClient({ A: [aRecord("1.2.3.4")] });
+    await checkDns(domainId, { db });
+
+    const events = eventRows();
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe("dns_record_removed");
+  });
+
+  it("records removed and re-added as two distinct events (different keys)", async () => {
+    // Removing then re-adding the same record is two real transitions with
+    // different dedup keys (REMOVED vs ADDED) — both must be recorded.
+    mockClient({ A: [aRecord("1.2.3.4"), aRecord("5.6.7.8")] });
+    await checkDns(domainId, { db });
+
+    mockClient({ A: [aRecord("1.2.3.4")] });
+    await checkDns(domainId, { db });
+    expect(eventRows()).toHaveLength(1); // removed
+
+    mockClient({ A: [aRecord("1.2.3.4"), aRecord("5.6.7.8")] });
+    await checkDns(domainId, { db });
+    const events = eventRows();
+    expect(events).toHaveLength(2); // removed + added
+    expect(new Set(events.map((e) => e.dedupKey)).size).toBe(2); // distinct keys
   });
 });

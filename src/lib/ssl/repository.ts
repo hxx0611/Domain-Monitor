@@ -13,6 +13,8 @@ import { desc, eq, inArray } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { db } from "@/db";
 import { sslCertificates, sslSnapshots, type Schema } from "@/db/schema";
+import { insertNotificationEvents } from "@/lib/notifications/repository";
+import type { NotificationEvent } from "@/lib/notifications/types";
 import type { SslCertificate, SslSnapshot, SslStatus } from "./types";
 
 export type SslDb = BetterSQLite3Database<Schema>;
@@ -33,12 +35,17 @@ export interface NewSslCheckData {
 }
 
 /**
- * Persist one SSL snapshot and its certificate atomically. Returns the new
- * snapshot id. A certificate is written only when present (failed checks
- * store just the snapshot row with status/error). Callers must ensure the
- * domain exists (FK enforced).
+ * Persist one SSL snapshot, its certificate, and any derived notification
+ * events atomically. Returns the new snapshot id. A certificate is written
+ * only when present (failed checks store just the snapshot row). Events are
+ * inserted in the SAME transaction — if an event insert fails the snapshot
+ * rolls back too (no lost events).
  */
-export function createSslSnapshot(data: NewSslCheckData, target: SslDb = db): number {
+export function createSslSnapshot(
+  data: NewSslCheckData,
+  target: SslDb = db,
+  events: NotificationEvent[] = [],
+): number {
   return target.transaction((tx) => {
     const snapshot = tx
       .insert(sslSnapshots)
@@ -68,6 +75,8 @@ export function createSslSnapshot(data: NewSslCheckData, target: SslDb = db): nu
         })
         .run();
     }
+
+    insertNotificationEvents(tx, events);
 
     return snapshot.id;
   });

@@ -17,6 +17,7 @@ import { fetchSslCertificate, SslError, type SslClientOptions } from "./client";
 import { diffSslSnapshots } from "./diff";
 import { classifySslStatus, toSslCertificate } from "./normalize";
 import { createSslSnapshot, getLatestSslSnapshot, type SslDb } from "./repository";
+import { sslChangesToEvents } from "@/lib/notifications/events";
 import type { SslCheckResult, SslSnapshot } from "./types";
 
 export interface SslServiceOptions {
@@ -99,6 +100,13 @@ export async function checkSsl(
         certificate,
       },
       options.db,
+      sslChangesToEvents({
+        domainId,
+        changes,
+        previousStatus: previous?.status,
+        currentStatus: status,
+        occurredAt: checkedAt,
+      }),
     );
 
     return { ok: true, snapshotId, checkedAt, changes };

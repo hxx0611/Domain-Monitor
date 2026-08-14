@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { domains, httpSnapshots } from "@/db/schema";
+import { domains, httpSnapshots, notificationEvents } from "@/db/schema";
 import { createTestDb } from "../../../test/helpers";
 import { checkHttp } from "./service";
 import { createHttpSnapshot, getHttpHistory, getLatestHttpSnapshot } from "./repository";
@@ -212,5 +212,120 @@ describe("checkHttp", () => {
     expect(result.snapshotId).toBeGreaterThan(0);
     expect(result.checkedAt).toBeInstanceOf(Date);
     expect(Object.keys(result)).toEqual(["ok", "snapshotId", "checkedAt"]);
+  });
+});
+
+describe("checkHttp notification events (V0.6)", () => {
+  const db = createTestDb();
+  let domainId = 0;
+
+  beforeEach(() => {
+    db.delete(notificationEvents).run();
+    db.delete(httpSnapshots).run();
+    db.delete(domains).run();
+    const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
+    domainId = domain.id;
+    mockedGetDomain.mockReturnValue({ id: domain.id, hostname: "example.com" } as never);
+    mockedFetch.mockReset();
+  });
+
+  function eventRows() {
+    return db.select().from(notificationEvents).all();
+  }
+
+  it("produces zero events on the first check", async () => {
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkHttp(domainId, { db });
+    expect(eventRows()).toHaveLength(0);
+  });
+
+  it("produces one event for ok → down", async () => {
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkHttp(domainId, { db });
+
+    mockedFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+    await checkHttp(domainId, { db });
+
+    const events = eventRows();
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe("http_status_changed");
+    expect(events[0].dedupKey).toBe(`http:${domainId}:http_status_changed:ok:error`);
+  });
+
+  it("produces zero events when the status is unchanged", async () => {
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkHttp(domainId, { db });
+    await checkHttp(domainId, { db });
+    expect(eventRows()).toHaveLength(0);
+  });
+
+  it("produces one event for down → ok recovery", async () => {
+    mockedFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+    await checkHttp(domainId, { db });
+    expect(eventRows()).toHaveLength(0); // first check: no previous → no event
+
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkHttp(domainId, { db });
+
+    const events = eventRows();
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe("http_status_changed");
+    expect(events[0].dedupKey).toBe(`http:${domainId}:http_status_changed:error:ok`);
+  });
+});
+
+describe("checkHttp event/snapshot atomicity (V0.6)", () => {
+  it("rolls back the snapshot when the event insert fails (same transaction)", async () => {
+    const db = createTestDb();
+    const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
+    const id = domain.id;
+    mockedGetDomain.mockReturnValue({ id, hostname: "example.com" } as never);
+    mockedFetch.mockReset();
+
+    // First check establishes an ok baseline (no event, snapshot saved).
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkHttp(id, { db });
+    expect(db.select().from(httpSnapshots).all()).toHaveLength(1);
+
+    // Force event inserts to fail; the ok → error transition would emit an
+    // event, so the whole transaction must roll back — snapshot included.
+    db.run(`
+      CREATE TRIGGER fail_event_insert
+      BEFORE INSERT ON notification_events
+      BEGIN SELECT RAISE(ABORT, 'forced event failure'); END;
+    `);
+    mockedFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+
+    // The error branch swallows the DB failure (logs it) and returns a
+    // user-safe failure; the key guarantee is atomicity: the error snapshot
+    // was NOT persisted without its event.
+    const result = await checkHttp(id, { db });
+    expect(result).toEqual({ ok: false, error: "HTTP monitoring unavailable." });
+
+    // Snapshot rolled back: still exactly the one baseline row, and the
+    // error snapshot was NOT persisted (no "snapshot saved, event lost").
+    const snapshots = db.select().from(httpSnapshots).all();
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0].status).toBe("ok");
+    expect(db.select().from(notificationEvents).all()).toHaveLength(0);
+  });
+
+  it("keeps the original error-snapshot behavior when event generation is a no-op", async () => {
+    const db = createTestDb();
+    const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
+    const id = domain.id;
+    mockedGetDomain.mockReturnValue({ id, hostname: "example.com" } as never);
+    mockedFetch.mockReset();
+
+    // First check fails: no previous snapshot → no event, but the error
+    // snapshot IS written (unchanged V0.5 behavior).
+    mockedFetch.mockRejectedValue(new Error("timeout"));
+    const result = await checkHttp(id, { db });
+
+    expect(result).toEqual({ ok: false, error: "HTTP monitoring unavailable." });
+    const snapshots = db.select().from(httpSnapshots).all();
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0].status).toBe("error");
+    expect(db.select().from(notificationEvents).all()).toHaveLength(0);
   });
 });

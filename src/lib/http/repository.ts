@@ -14,6 +14,8 @@ import { desc, eq } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { db } from "@/db";
 import { httpSnapshots, type Schema } from "@/db/schema";
+import { insertNotificationEvents } from "@/lib/notifications/repository";
+import type { NotificationEvent } from "@/lib/notifications/types";
 import type { HttpSnapshot, HttpStatus } from "./types";
 
 export type HttpDb = BetterSQLite3Database<Schema>;
@@ -31,25 +33,36 @@ export interface NewHttpCheckData {
 }
 
 /**
- * Persist one HTTP check snapshot. Returns the new snapshot id.
- * Callers must ensure the domain exists (FK enforced).
+ * Persist one HTTP check snapshot and any derived notification events
+ * atomically. Returns the new snapshot id. Events are inserted in the SAME
+ * transaction — if an event insert fails the snapshot rolls back too (no
+ * lost events).
  */
-export function createHttpSnapshot(data: NewHttpCheckData, target: HttpDb = db): number {
-  const row = target
-    .insert(httpSnapshots)
-    .values({
-      domainId: data.domainId,
-      status: data.status,
-      httpStatus: data.httpStatus ?? null,
-      responseTimeMs: data.responseTimeMs ?? null,
-      redirected: data.redirected ? 1 : 0,
-      redirectCount: data.redirectCount,
-      finalUrl: data.finalUrl ?? null,
-      error: data.error ?? null,
-    })
-    .returning({ id: httpSnapshots.id })
-    .get();
-  return row.id;
+export function createHttpSnapshot(
+  data: NewHttpCheckData,
+  target: HttpDb = db,
+  events: NotificationEvent[] = [],
+): number {
+  return target.transaction((tx) => {
+    const row = tx
+      .insert(httpSnapshots)
+      .values({
+        domainId: data.domainId,
+        status: data.status,
+        httpStatus: data.httpStatus ?? null,
+        responseTimeMs: data.responseTimeMs ?? null,
+        redirected: data.redirected ? 1 : 0,
+        redirectCount: data.redirectCount,
+        finalUrl: data.finalUrl ?? null,
+        error: data.error ?? null,
+      })
+      .returning({ id: httpSnapshots.id })
+      .get();
+
+    insertNotificationEvents(tx, events);
+
+    return row.id;
+  });
 }
 
 /** The most recent snapshot for a domain, or `undefined` when never checked. */

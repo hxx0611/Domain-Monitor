@@ -11,9 +11,17 @@ export default function Home() {
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-12">
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight">Domain Monitor</h1>
-        <p className="mt-1 text-sm text-gray-500">Open-source domain lifecycle monitoring.</p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Domain Monitor</h1>
+          <p className="mt-1 text-sm text-gray-500">Open-source domain lifecycle monitoring.</p>
+        </div>
+        <Link
+          href="/notifications"
+          className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+        >
+          Notifications
+        </Link>
       </header>
 
       <AddDomainForm />

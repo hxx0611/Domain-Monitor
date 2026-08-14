@@ -13,6 +13,8 @@ import { desc, eq, inArray } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { db } from "@/db";
 import { dnsRecords, dnsSnapshots, type Schema } from "@/db/schema";
+import { insertNotificationEvents } from "@/lib/notifications/repository";
+import type { NotificationEvent } from "@/lib/notifications/types";
 import type { DnsRecord, DnsSnapshot } from "./types";
 
 export type DnsDb = BetterSQLite3Database<Schema>;
@@ -23,13 +25,16 @@ export interface DnsSnapshotWithRecords extends Omit<DnsSnapshot, "records"> {
 }
 
 /**
- * Persist one snapshot and its records atomically. Returns the new
- * snapshot id. Callers must ensure the domain exists (FK enforced).
+ * Persist one snapshot, its records, and any derived notification events
+ * atomically. Returns the new snapshot id. Callers must ensure the domain
+ * exists (FK enforced). Events are inserted in the SAME transaction — if
+ * an event insert fails the snapshot rolls back too (no lost events).
  */
 export function createDnsSnapshot(
   domainId: number,
   records: DnsRecord[],
   target: DnsDb = db,
+  events: NotificationEvent[] = [],
 ): number {
   return target.transaction((tx) => {
     const snapshot = tx
@@ -52,6 +57,8 @@ export function createDnsSnapshot(
         )
         .run();
     }
+
+    insertNotificationEvents(tx, events);
 
     return snapshot.id;
   });

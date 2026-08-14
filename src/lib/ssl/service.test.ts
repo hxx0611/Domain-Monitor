@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { domains, sslCertificates, sslSnapshots } from "@/db/schema";
+import { domains, sslCertificates, sslSnapshots, notificationEvents } from "@/db/schema";
 import { createTestDb } from "../../../test/helpers";
 import { checkSsl } from "./service";
 import type { RawSslResult } from "./client";
@@ -243,5 +243,88 @@ describe("checkSsl", () => {
     // The snapshot insert was rolled back with the certificate insert.
     expect(db.select().from(sslSnapshots).all()).toHaveLength(0);
     expect(db.select().from(sslCertificates).all()).toHaveLength(0);
+  });
+});
+
+describe("checkSsl notification events (V0.6)", () => {
+  const db = createTestDb();
+  let domainId = 0;
+
+  beforeEach(() => {
+    db.delete(notificationEvents).run();
+    db.delete(sslCertificates).run();
+    db.delete(sslSnapshots).run();
+    db.delete(domains).run();
+    const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
+    domainId = domain.id;
+    mockedGetDomain.mockReturnValue({ id: domain.id, hostname: "example.com" } as never);
+    mockedFetch.mockReset();
+  });
+
+  function eventRows() {
+    return db.select().from(notificationEvents).all();
+  }
+
+  it("produces zero events on the first check", async () => {
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkSsl(domainId, { db });
+    expect(eventRows()).toHaveLength(0);
+  });
+
+  it("produces one event when the certificate is replaced", async () => {
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkSsl(domainId, { db });
+
+    mockedFetch.mockResolvedValue(
+      rawResult({ certificate: rawCert({ fingerprint256: "EE:FF:00:11" }) }),
+    );
+    await checkSsl(domainId, { db });
+
+    const events = eventRows();
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe("ssl_cert_replaced");
+    expect(events[0].dedupKey).toContain("AA:BB:CC:DD");
+    expect(events[0].dedupKey).toContain("EE:FF:00:11");
+  });
+
+  it("produces one event when the SSL status changes", async () => {
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkSsl(domainId, { db });
+
+    mockedFetch.mockResolvedValue(
+      rawResult({ certificate: rawCert({ validToDate: daysFromNow(10) }) }),
+    );
+    await checkSsl(domainId, { db });
+
+    const events = eventRows();
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe("ssl_status_changed");
+    expect(events[0].dedupKey).toBe(`ssl:${domainId}:ssl_status_changed:ok:expires_soon`);
+  });
+
+  it("produces two events when cert replaced AND status changes together", async () => {
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkSsl(domainId, { db });
+
+    mockedFetch.mockResolvedValue(
+      rawResult({
+        certificate: rawCert({ fingerprint256: "EE:FF:00:11", validToDate: daysFromNow(-5) }),
+      }),
+    );
+    await checkSsl(domainId, { db });
+
+    const events = eventRows();
+    expect(events).toHaveLength(2);
+    expect(events.map((e) => e.eventType).sort()).toEqual([
+      "ssl_cert_replaced",
+      "ssl_status_changed",
+    ]);
+  });
+
+  it("produces zero events when nothing changed", async () => {
+    mockedFetch.mockResolvedValue(rawResult());
+    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { db });
+    expect(eventRows()).toHaveLength(0);
   });
 });

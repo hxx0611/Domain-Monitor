@@ -1,4 +1,4 @@
-import { sqliteTable, integer, text, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, integer, text, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { InferSelectModel, InferInsertModel } from "drizzle-orm";
 
 /**
@@ -194,6 +194,115 @@ export const httpSnapshots = sqliteTable(
 export type HttpSnapshot = InferSelectModel<typeof httpSnapshots>;
 export type NewHttpSnapshot = InferInsertModel<typeof httpSnapshots>;
 
+/**
+ * Notifications (V0.6).
+ *
+ * Event → Rule → Delivery pipeline:
+ * - `notificationEvents` is the unified, deduplicated event stream derived
+ *   from DNS / SSL / HTTP snapshot diffs. `dedupKey` uniquely identifies
+ *   one concrete state transition (e.g. http:5:status_changed:ok:down) so
+ *   the same transition is never recorded twice.
+ * - `notificationChannels` are delivery endpoints. V0.6 supports email and
+ *   webhook only; webhook secrets are referenced by key, never stored raw
+ *   in the config JSON.
+ * - `notificationRules` map events to channels (source / event type /
+ *   domain filters; null = match all).
+ * - `notificationDeliveries` record per-channel send attempts for an event.
+ *
+ * Phase 1 defines the data boundary only — no sending logic yet.
+ */
+export const notificationChannels = sqliteTable("notification_channels", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  /** "email" | "webhook". */
+  type: text("type").notNull(),
+  name: text("name").notNull(),
+  /** JSON config: email → {"to": ...}; webhook → {"url": ..., "secretRef": ...}. */
+  config: text("config").notNull(),
+  enabled: integer("enabled").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const notificationRules = sqliteTable("notification_rules", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  channelId: integer("channel_id")
+    .notNull()
+    .references(() => notificationChannels.id, { onDelete: "cascade" }),
+  /** null = all sources. */
+  source: text("source"),
+  /** null = all event types. */
+  eventType: text("event_type"),
+  /** null = all domains. */
+  domainId: integer("domain_id").references(() => domains.id, { onDelete: "cascade" }),
+  enabled: integer("enabled").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const notificationEvents = sqliteTable(
+  "notification_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    domainId: integer("domain_id")
+      .notNull()
+      .references(() => domains.id, { onDelete: "cascade" }),
+    /** "dns" | "ssl" | "http". */
+    source: text("source").notNull(),
+    eventType: text("event_type").notNull(),
+    /** JSON-encoded previous state (null when none). */
+    previousState: text("previous_state"),
+    /** JSON-encoded current state (null when none). */
+    currentState: text("current_state"),
+    /** Stable identity of one state transition — unique per event. */
+    dedupKey: text("dedup_key").notNull().unique(),
+    occurredAt: integer("occurred_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [index("notification_events_domain_id_idx").on(table.domainId)],
+);
+
+export const notificationDeliveries = sqliteTable(
+  "notification_deliveries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => notificationEvents.id, { onDelete: "cascade" }),
+    channelId: integer("channel_id")
+      .notNull()
+      .references(() => notificationChannels.id, { onDelete: "cascade" }),
+    /** "pending" | "sending" | "sent" | "failed". */
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    /** Set when claimed (pending → sending); used to recover stale sends. */
+    claimedAt: integer("claimed_at", { mode: "timestamp" }),
+    deliveredAt: integer("delivered_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("notification_deliveries_event_id_idx").on(table.eventId),
+    // One pending/sent/failed delivery per event+channel — multiple rules
+    // matching the same channel must never create duplicates.
+    uniqueIndex("notification_deliveries_event_channel_unique").on(table.eventId, table.channelId),
+  ],
+);
+
+export type NotificationChannel = InferSelectModel<typeof notificationChannels>;
+export type NewNotificationChannel = InferInsertModel<typeof notificationChannels>;
+export type NotificationRule = InferSelectModel<typeof notificationRules>;
+export type NewNotificationRule = InferInsertModel<typeof notificationRules>;
+export type NotificationEventRow = InferSelectModel<typeof notificationEvents>;
+export type NewNotificationEvent = InferInsertModel<typeof notificationEvents>;
+export type NotificationDelivery = InferSelectModel<typeof notificationDeliveries>;
+export type NewNotificationDelivery = InferInsertModel<typeof notificationDeliveries>;
+
 export const schema = {
   domains,
   dnsSnapshots,
@@ -201,6 +310,10 @@ export const schema = {
   sslSnapshots,
   sslCertificates,
   httpSnapshots,
+  notificationChannels,
+  notificationRules,
+  notificationEvents,
+  notificationDeliveries,
 };
 
 export type Schema = typeof schema;
