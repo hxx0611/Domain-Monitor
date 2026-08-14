@@ -5,11 +5,14 @@ import { formatDate } from "@/lib/format";
 import { RefreshRdapButton } from "@/components/refresh-rdap-button";
 import { CheckDnsButton } from "@/components/check-dns-button";
 import { CheckSslButton } from "@/components/check-ssl-button";
+import { CheckHttpButton } from "@/components/check-http-button";
 import { getDnsSnapshots, getLatestDnsSnapshot } from "@/lib/dns/repository";
 import { diffDnsSnapshots } from "@/lib/dns";
 import { DNS_RECORD_TYPES, type DnsRecord } from "@/lib/dns";
 import { getSslHistory, getLatestSslSnapshot } from "@/lib/ssl/repository";
 import { daysRemaining, type SslStatus } from "@/lib/ssl";
+import { getHttpHistory, getLatestHttpSnapshot } from "@/lib/http/repository";
+import { type HttpStatus } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +84,46 @@ function SslStatusBadge({ status }: { status: SslStatus }) {
   );
 }
 
+/** HTTP status badge, mirroring the SSL badge style. */
+function HttpStatusBadge({ status }: { status: HttpStatus }) {
+  const config: Record<HttpStatus, { label: string; className: string; dot: string }> = {
+    ok: {
+      label: "Up",
+      className: "bg-green-50 text-green-700",
+      dot: "bg-green-500",
+    },
+    client_error: {
+      label: "Client error",
+      className: "bg-amber-50 text-amber-700",
+      dot: "bg-amber-500",
+    },
+    server_error: {
+      label: "Server error",
+      className: "bg-red-50 text-red-700",
+      dot: "bg-red-500",
+    },
+    down: {
+      label: "Down",
+      className: "bg-red-50 text-red-700",
+      dot: "bg-red-500",
+    },
+    error: {
+      label: "Error",
+      className: "bg-gray-100 text-gray-600",
+      dot: "bg-gray-400",
+    },
+  };
+  const { label, className, dot } = config[status];
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}
+    >
+      <span className={`size-1.5 rounded-full ${dot}`} />
+      {label}
+    </span>
+  );
+}
+
 export default async function DomainDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const domainId = Number(id);
@@ -105,9 +148,8 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
   const latestSsl = getLatestSslSnapshot(domain.id);
   const sslHistory = getSslHistory(domain.id, 10);
 
-  const upcomingModules = [
-    { title: "HTTP", description: "Uptime and response health checks" },
-  ] as const;
+  const latestHttp = getLatestHttpSnapshot(domain.id);
+  const httpHistory = getHttpHistory(domain.id, 10);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-12">
@@ -374,18 +416,101 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
         </div>
       </section>
 
-      <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
-          Monitoring modules
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {upcomingModules.map((module) => (
-            <div key={module.title} className="rounded-lg border border-gray-200 p-4">
-              <h3 className="text-sm font-semibold text-gray-900">{module.title}</h3>
-              <p className="mt-1 text-xs text-gray-500">{module.description}</p>
-              <p className="mt-3 text-xs font-medium text-gray-400">Coming soon</p>
+      <section className="mb-10 rounded-lg border border-gray-200">
+        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+          <h2 className="text-sm font-semibold text-gray-900">HTTP Health Checks</h2>
+          <CheckHttpButton domainId={domain.id} />
+        </div>
+
+        <div className="border-b border-gray-100 px-4 py-3 text-sm">
+          <span className="text-gray-500">Last checked:</span>{" "}
+          <span className="font-medium text-gray-900">
+            {latestHttp ? formatDate(latestHttp.checkedAt) : "Never checked"}
+          </span>
+        </div>
+
+        {latestHttp && latestHttp.status !== "error" ? (
+          <dl className="divide-y divide-gray-100 text-sm">
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <dt className="shrink-0 text-gray-500">Status</dt>
+              <dd className="flex items-center gap-2 text-right font-medium text-gray-900">
+                <HttpStatusBadge status={latestHttp.status} />
+                {latestHttp.httpStatus !== undefined ? (
+                  <span className="text-gray-600">HTTP {latestHttp.httpStatus}</span>
+                ) : null}
+                {latestHttp.responseTimeMs !== undefined ? (
+                  <span className="text-gray-600">{latestHttp.responseTimeMs} ms</span>
+                ) : null}
+              </dd>
             </div>
-          ))}
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <dt className="shrink-0 text-gray-500">Redirects</dt>
+              <dd className="text-right font-medium text-gray-900">
+                {latestHttp.redirectCount > 0 ? (
+                  <span>
+                    {latestHttp.redirectCount} ({latestHttp.finalUrl ?? ""})
+                  </span>
+                ) : (
+                  "None"
+                )}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <dt className="shrink-0 text-gray-500">Final URL</dt>
+              <dd className="min-w-0 break-all text-right font-mono text-xs text-gray-900">
+                {latestHttp.finalUrl ?? "—"}
+              </dd>
+            </div>
+          </dl>
+        ) : latestHttp && latestHttp.status === "error" ? (
+          <p className="px-4 py-6 text-sm text-gray-500">HTTP monitoring unavailable.</p>
+        ) : null}
+
+        <div className="px-4 py-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            HTTP History
+          </h3>
+          {httpHistory.length > 0 ? (
+            <ul className="divide-y divide-gray-50 text-sm">
+              {httpHistory.map((snapshot, index) => {
+                const previous =
+                  index + 1 < httpHistory.length ? httpHistory[index + 1] : undefined;
+                const statusChanged = previous !== undefined && previous.status !== snapshot.status;
+                return (
+                  <li key={snapshot.id} className="flex items-center justify-between gap-3 py-1.5">
+                    <span className="text-gray-900">{formatDate(snapshot.checkedAt)}</span>
+                    <span
+                      className={
+                        snapshot.status === "server_error" || snapshot.status === "down"
+                          ? "font-medium text-red-600"
+                          : snapshot.status === "client_error"
+                            ? "font-medium text-amber-600"
+                            : snapshot.status === "error"
+                              ? "text-gray-500"
+                              : "text-gray-500"
+                      }
+                    >
+                      {previous === undefined
+                        ? "First check"
+                        : snapshot.status === "error"
+                          ? "Unavailable"
+                          : statusChanged
+                            ? `Status changed → ${snapshot.status}`
+                            : snapshot.httpStatus !== undefined
+                              ? `HTTP ${snapshot.httpStatus}${
+                                  snapshot.responseTimeMs !== undefined
+                                    ? ` · ${snapshot.responseTimeMs} ms`
+                                    : ""
+                                }`
+                              : snapshot.status}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-500">No checks yet.</p>
+          )}
         </div>
       </section>
     </main>

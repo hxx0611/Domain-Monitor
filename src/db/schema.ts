@@ -152,6 +152,55 @@ export type NewSslSnapshot = InferInsertModel<typeof sslSnapshots>;
 export type SslCertificateRow = InferSelectModel<typeof sslCertificates>;
 export type NewSslCertificate = InferInsertModel<typeof sslCertificates>;
 
-export const schema = { domains, dnsSnapshots, dnsRecords, sslSnapshots, sslCertificates };
+/**
+ * HTTP health checks (V0.5).
+ *
+ * Every HTTP check stores one row in `httpSnapshots`. Unlike DNS and SSL,
+ * an HTTP check produces scalar values (status code, response time, redirect
+ * metadata) rather than a collection or object, so a single table suffices.
+ *
+ * `status` is the normalized outcome (see src/lib/http/types.ts):
+ * - ok / client_error / server_error — a response was received
+ * - down — connection failed (no reachable service)
+ * - error — transport error or internal failure (user-safe message in `error`)
+ */
+export const httpSnapshots = sqliteTable(
+  "http_snapshots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    domainId: integer("domain_id")
+      .notNull()
+      .references(() => domains.id, { onDelete: "cascade" }),
+    checkedAt: integer("checked_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    status: text("status").notNull(),
+    /** Final HTTP status code (present when a response was received). */
+    httpStatus: integer("http_status"),
+    /** Total request time in milliseconds. */
+    responseTimeMs: integer("response_time_ms"),
+    /** 0/1 — whether any redirect was followed. */
+    redirected: integer("redirected"),
+    /** Number of redirects followed (0 when none). */
+    redirectCount: integer("redirect_count"),
+    /** Final URL after redirects. */
+    finalUrl: text("final_url"),
+    /** User-safe message when status is "error". */
+    error: text("error"),
+  },
+  (table) => [index("http_snapshots_domain_id_idx").on(table.domainId)],
+);
+
+export type HttpSnapshot = InferSelectModel<typeof httpSnapshots>;
+export type NewHttpSnapshot = InferInsertModel<typeof httpSnapshots>;
+
+export const schema = {
+  domains,
+  dnsSnapshots,
+  dnsRecords,
+  sslSnapshots,
+  sslCertificates,
+  httpSnapshots,
+};
 
 export type Schema = typeof schema;
