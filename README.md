@@ -1,5 +1,7 @@
 # Domain Monitor
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 A lightweight, self-hostable domain lifecycle monitoring platform for RDAP, DNS, and domain status tracking.
 
 [![CI](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml)
