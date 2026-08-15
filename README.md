@@ -2,94 +2,124 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A lightweight, self-hostable domain lifecycle monitoring platform for RDAP, DNS, and domain status tracking.
+**Self-hosted domain monitoring for RDAP, DNS, SSL & HTTP.**
 
 [![CI](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/hxx0611/Domain-Monitor?sort=semver)](https://github.com/hxx0611/Domain-Monitor/releases)
 
-Domain Monitor helps you keep track of the domains you own: it stores them locally, looks up registration data via RDAP, and lets you run DNS checks to see how your records evolve over time.
+Keep your domains under control: track registration data, detect DNS and SSL changes, catch HTTP failures — and get notified when something changes.
 
-## Screenshots
+- **Event-driven notifications** — changes become events, events become notifications
+- **Webhook / Email** delivery to your existing tools
+- **Delivery Worker** — one-shot CLI, schedule with cron, no daemon
+- **English / 简体中文** UI
 
-Domain details view with RDAP information, DNS records, and DNS change history.
+![Dashboard](docs/screenshots/dashboard-en.png)
 
-![Domain details view](docs/screenshots/domain-details.png)
+## Why Domain-Monitor?
+
+A domain is never just "up or down". The interesting questions are the changes in between:
+
+- **DNS changes** — records added, removed, or changed (A / AAAA / CNAME / MX / NS / TXT / CAA)
+- **SSL changes** — certificates expiring, replaced, or mismatched with the hostname
+- **HTTP failures / recovery** — downtime, status changes, redirect drift
+- **Registration information** — registrar, expiry, nameservers, RDAP status
+
+Domain Monitor turns those changes into **events**, matches them against your **rules**, and delivers them as **notifications** — so you find out when something *changes*, not when it breaks.
+
+## Quick Start
+
+```bash
+git clone https://github.com/hxx0611/Domain-Monitor.git
+cd Domain-Monitor
+pnpm install
+cp .env.example .env
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+Requires Node.js >= 18 and [pnpm](https://pnpm.io/). Works on Linux, macOS, and Windows.
 
 ## Features
 
-### Domain Management
+### Domain Intelligence
 
-- Add and manage monitored domains
+- Manage all monitored domains in one place — self-hosted local storage (SQLite)
+- Automatic RDAP lookup on creation: registrar, expiry, nameservers, RDAP status (IANA bootstrap, 590+ TLDs)
 - Domain normalization and validation (accepts `https://example.com/path`, stores `example.com`)
-- Self-hosted local storage (SQLite)
-- Domain detail pages
-
-### RDAP Information
-
-- Automatic RDAP lookup on domain creation
-- IANA bootstrap routing (590+ TLDs)
-- Registrar information
-- Registration / expiration / last-updated dates
-- Nameservers and RDAP status
-- Manual RDAP refresh
+- Manual RDAP refresh anytime
 
 ### DNS Monitoring
 
-- DNS-over-HTTPS based monitoring (Cloudflare DoH)
-- A / AAAA / CNAME / MX / NS / TXT / CAA records
-- Historical DNS snapshots
-- Added / removed record detection
-- TTL-only changes ignored
-- Atomic failed-check handling (a partial failure never deletes old data)
-- Manual DNS checks
+- DNS-over-HTTPS based monitoring (Cloudflare DoH, resolver swappable via `DNS_DOH_ENDPOINT`)
+- Tracks A / AAAA / CNAME / MX / NS / TXT / CAA records
+- Historical snapshots with added / removed record detection (TTL-only changes ignored)
+- Atomic failed-check handling — a partial failure never deletes old data
 
-### SSL Certificate Monitoring
+### SSL Monitoring
 
 - TLS certificate inspection (Node.js native TLS)
-- Certificate expiration / status tracking (valid, expires soon, expired)
+- Expiration tracking: valid / expires soon / expired
 - Hostname mismatch detection (SAN vs queried domain)
-- Certificate fingerprint / replacement detection
-- TLS version and cipher information
-- SSL check history
-- Manual SSL checks
+- Certificate fingerprint / replacement detection, TLS version and cipher information
 
-### HTTP Health Checks
+### HTTP Monitoring
 
-- HTTP status monitoring (status code classification)
-- Response-time tracking
+- HTTP status classification and response-time tracking
 - Redirect tracking (count and final URL)
 - Connection-failure detection (down)
-- HTTP check history
-- Manual HTTP checks
+- Per-check history
 
-### Notification System
+### Notifications
 
-- Domain lifecycle events (DNS / SSL / HTTP check events)
-- Notification channels: **Email API** and **Webhook**
+- Domain lifecycle events from DNS / SSL / HTTP checks
+- Channels: **Email API** and **Webhook**
 - Rule-based delivery matching (global or per-domain rules)
-- Delivery history with status tracking (pending / sending / sent / failed)
-- Manual retry for failed deliveries
-- SSRF-guarded outbound requests (HTTPS only, per-redirect re-validation)
+- Delivery history with status tracking (pending / sending / sent / failed) and manual retry
 
 ### Delivery Worker
 
-- One-shot CLI worker (`pnpm worker`) that consumes `pending` deliveries
-- **Automatic Event → Delivery generation inside the check transaction**
-  (DNS / SSL / HTTP checks create their matching deliveries atomically)
-- Stale `sending` recovery (crash-safe, 5-minute default threshold)
-- Concurrent-worker safe via atomic claim (SQLite CAS)
-- `busy_timeout = 5000` for multi-process SQLite writes
+- One-shot CLI (`pnpm worker`) — schedule with cron, no daemon, no HTTP endpoint
+- **Automatic Event → Delivery generation inside the check transaction** (atomic)
+- Stale `sending` recovery (crash-safe) and concurrent-worker safety (SQLite CAS)
 
 ### Bilingual UI
 
 - **English / 简体中文** language switching in the header
-- Locale-aware UI dictionary (all user-visible text is translated)
-- Language preference stored in the `domain-monitor-locale` cookie
-  (`en` / `zh-CN`, default `en`)
-- Cookie + Server Action + `router.refresh()` — no URL prefix, no middleware,
-  no third-party i18n dependency
+- Locale-aware UI dictionary; preference stored in the `domain-monitor-locale` cookie (`en` / `zh-CN`, default `en`)
+- Cookie + Server Action + `router.refresh()` — no URL prefix, no middleware, no third-party i18n dependency
 - Machine values (delivery status, event types, sources) are never translated
+
+## How It Works
+
+```mermaid
+flowchart LR
+    A[Domain Check] --> B[Event]
+    B --> C[Rule Matching]
+    C --> D[Delivery Queue]
+    D --> E[Worker / Cron]
+    E --> F[Webhook / Email]
+```
+
+A check writes its snapshot, its events, and the matching pending deliveries in **one transaction**. The delivery worker claims pending deliveries (atomic CAS) and calls the senders. Retrying a failed delivery from the UI works end-to-end.
+
+![Domain details — RDAP, DNS changes, SSL certificates, HTTP status](docs/screenshots/domain-details-en.png)
+
+## Security by Design
+
+- **SSRF protection** — outbound requests are HTTPS-only, with per-redirect re-validation
+- **HTTPS-only** outbound traffic, **redirect re-validation** on every hop
+- **Secret isolation** — API keys / webhook secrets are stored as references, never exposed in the UI, worker output, or client bundle
+- **at-least-once** delivery with stable `eventId` + `deliveryId` for receiver-side deduplication
+
+## Built for Reliability
+
+- **488 tests** covering services, state machines, senders, the delivery worker, and the i18n core
+- **SSRF-guarded** webhook and email senders
+- **SQLite concurrency tested** — atomic claim (CAS) + `busy_timeout = 5000`
+- **Self-hosted** — your data stays on your machine
 
 ## Current Status
 
@@ -110,7 +140,9 @@ DNS, SSL and HTTP checks are currently manual; automatic scheduling is planned f
 
 The notification pipeline is fully closed: a check writes its snapshot, its events, and the matching pending deliveries in ONE transaction; the delivery worker consumes those pending deliveries and calls the senders. Retrying a failed delivery from the UI works end-to-end.
 
-## Notification Worker (V0.7)
+## Delivery Worker (V0.7)
+
+![Notifications — channels, rules, delivery history with Retry](docs/screenshots/notifications-en.png)
 
 The delivery worker is a **one-shot CLI process** that consumes the `pending` deliveries the notification pipeline records. It is the recommended way to run notifications on a self-hosted deployment.
 
@@ -162,20 +194,6 @@ Recommended: the CLI worker plus an external scheduler (system cron or equivalen
 - **historical events** — V0.7 does NOT backfill deliveries for events recorded before the upgrade; the worker only consumes the current `pending` queue.
 - SQLite `busy_timeout = 5000` is enabled so the worker and the web app can write concurrently without immediate `SQLITE_BUSY` failures.
 - No daemon, no automatic retry, no backoff, no max-attempts, no distributed queue (Redis/Kafka), no HTTP scheduler endpoint, no serverless scheduler, no SLA/uptime monitoring.
-
-## Quick Start
-
-```bash
-git clone https://github.com/hxx0611/Domain-Monitor.git
-cd Domain-Monitor
-pnpm install
-cp .env.example .env
-pnpm dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-Requires Node.js >= 18 and [pnpm](https://pnpm.io/). Works on Linux, macOS, and Windows.
 
 ## Testing
 

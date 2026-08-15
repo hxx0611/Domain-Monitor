@@ -2,94 +2,124 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-一个轻量、可自托管的域名生命周期监控平台，用于 RDAP、DNS 与域名状态跟踪。
+**自托管域名监控：RDAP、DNS、SSL 与 HTTP。**
 
 [![CI](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/hxx0611/Domain-Monitor?sort=semver)](https://github.com/hxx0611/Domain-Monitor/releases)
 
-Domain Monitor 帮助你跟踪自己拥有的域名：在本地存储域名、通过 RDAP 查询注册信息，并运行 DNS 检查以观察记录随时间的变化。
+掌控你的域名：跟踪注册信息、发现 DNS 与 SSL 变化、捕获 HTTP 故障——并在变化发生时收到通知。
 
-## 截图
+- **事件驱动通知** —— 变化转化为事件，事件转化为通知
+- **Webhook / Email** 投递到你的现有工具
+- **Delivery Worker** —— 一次性 CLI，配合 cron 调度，无 daemon
+- **English / 简体中文** 界面
 
-域名详情视图，包含 RDAP 信息、DNS 记录与 DNS 变更历史。
+![仪表盘](docs/screenshots/dashboard-zh-CN.png)
 
-![域名详情视图](docs/screenshots/domain-details.png)
+## 为什么选择 Domain-Monitor？
+
+域名绝不只是"在线 / 离线"两种状态。真正值得关注的是中间的变化：
+
+- **DNS 变化** —— 记录新增、移除或变更（A / AAAA / CNAME / MX / NS / TXT / CAA）
+- **SSL 变化** —— 证书到期、替换，或与主机名不匹配
+- **HTTP 故障 / 恢复** —— 宕机、状态变化、重定向漂移
+- **注册信息** —— 注册商、到期时间、名称服务器、RDAP 状态
+
+Domain Monitor 将这些变化转化为 **events**，按你的 **规则** 匹配，并以 **通知** 的形式投递——让你在事情*发生变化*时就知道，而不是等它出问题。
+
+## 快速开始
+
+```bash
+git clone https://github.com/hxx0611/Domain-Monitor.git
+cd Domain-Monitor
+pnpm install
+cp .env.example .env
+pnpm dev
+```
+
+打开 [http://localhost:3000](http://localhost:3000)。
+
+需要 Node.js >= 18 与 [pnpm](https://pnpm.io/)。支持 Linux、macOS 与 Windows。
 
 ## 功能
 
-### 域名管理
+### Domain Intelligence
 
-- 添加并管理被监控的域名
+- 集中管理所有被监控域名 —— 自托管本地存储（SQLite）
+- 域名创建时自动执行 RDAP 查询：注册商、到期时间、名称服务器、RDAP 状态（IANA bootstrap，590+ TLD）
 - 域名规范化与校验（接受 `https://example.com/path`，存储为 `example.com`）
-- 自托管本地存储（SQLite）
-- 域名详情页
-
-### RDAP 信息
-
-- 域名创建时自动执行 RDAP 查询
-- IANA bootstrap 路由（590+ TLD）
-- 注册商信息
-- 注册 / 到期 / 最后更新时间
-- 名称服务器与 RDAP 状态
-- 手动 RDAP 刷新
+- 随时手动刷新 RDAP
 
 ### DNS 监控
 
-- 基于 DNS-over-HTTPS 的监控（Cloudflare DoH）
-- A / AAAA / CNAME / MX / NS / TXT / CAA 记录
-- 历史 DNS 快照
-- 新增 / 移除记录检测
-- 仅 TTL 变化被忽略
-- 原子化失败检查处理（部分失败绝不会删除旧数据）
-- 手动 DNS 检查
+- 基于 DNS-over-HTTPS 的监控（Cloudflare DoH，可通过 `DNS_DOH_ENDPOINT` 更换解析器）
+- 跟踪 A / AAAA / CNAME / MX / NS / TXT / CAA 记录
+- 历史快照与新增 / 移除记录检测（仅 TTL 变化被忽略）
+- 原子化失败检查处理 —— 部分失败绝不会删除旧数据
 
 ### SSL 证书监控
 
 - TLS 证书检查（Node.js 原生 TLS）
-- 证书到期 / 状态跟踪（有效、即将到期、已过期）
+- 到期跟踪：有效 / 即将到期 / 已过期
 - 主机名不匹配检测（SAN 与查询域名对比）
-- 证书指纹 / 替换检测
-- TLS 版本与加密套件信息
-- SSL 检查历史
-- 手动 SSL 检查
+- 证书指纹 / 替换检测，TLS 版本与加密套件信息
 
 ### HTTP 健康检查
 
-- HTTP 状态监控（状态码分类）
-- 响应时间跟踪
+- HTTP 状态分类与响应时间跟踪
 - 重定向跟踪（次数与最终 URL）
 - 连接失败检测（down）
-- HTTP 检查历史
-- 手动 HTTP 检查
+- 每次检查的历史记录
 
 ### 通知系统
 
-- 域名生命周期事件（DNS / SSL / HTTP 检查事件）
+- DNS / SSL / HTTP 检查产生的域名生命周期事件
 - 通知渠道：**Email API** 与 **Webhook**
 - 基于规则的投递匹配（全局或按域名规则）
-- 投递历史与状态跟踪（pending / sending / sent / failed）
-- 失败投递的手动重试
-- SSRF 防护的出站请求（仅 HTTPS，逐跳重定向复查）
+- 投递历史与状态跟踪（pending / sending / sent / failed），支持手动重试
 
 ### 投递 Worker
 
-- 一次性 CLI Worker（`pnpm worker`），消费 `pending` 投递
-- **检查事务内自动生成 Event → Delivery**
-  （DNS / SSL / HTTP 检查原子地创建对应的投递）
-- 过期 `sending` 恢复（崩溃安全，默认阈值 5 分钟）
-- 通过原子 claim 实现并发 Worker 安全（SQLite CAS）
-- 多进程 SQLite 写入启用 `busy_timeout = 5000`
+- 一次性 CLI（`pnpm worker`）—— 配合 cron 调度，无 daemon、无 HTTP endpoint
+- **检查事务内自动生成 Event → Delivery**（原子操作）
+- 过期 `sending` 恢复（崩溃安全）与并发 Worker 安全（SQLite CAS）
 
 ### 双语 UI
 
 - Header 支持 **English / 简体中文** 语言切换
-- 语言感知的 UI 字典（所有用户可见文本均支持翻译）
-- 语言偏好存储在 `domain-monitor-locale` cookie 中
-  （`en` / `zh-CN`，默认 `en`）
-- Cookie + Server Action + `router.refresh()` —— 无 URL 前缀、无 middleware、
-  无第三方 i18n 依赖
+- 语言感知的 UI 字典；偏好存储在 `domain-monitor-locale` cookie 中（`en` / `zh-CN`，默认 `en`）
+- Cookie + Server Action + `router.refresh()` —— 无 URL 前缀、无 middleware、无第三方 i18n 依赖
 - 机器值（投递状态、事件类型、来源）绝不翻译
+
+## 工作原理
+
+```mermaid
+flowchart LR
+    A[Domain Check] --> B[Event]
+    B --> C[Rule Matching]
+    C --> D[Delivery Queue]
+    D --> E[Worker / Cron]
+    E --> F[Webhook / Email]
+```
+
+一次检查在**同一个事务**中写入其快照、事件与匹配的 pending 投递。投递 Worker 原子 claim pending 投递（CAS）并调用发送器。从 UI 重试失败的投递可端到端工作。
+
+![域名详情 — RDAP、DNS 变更、SSL 证书、HTTP 状态](docs/screenshots/domain-details-zh-CN.png)
+
+## 安全设计
+
+- **SSRF 防护** —— 出站请求仅 HTTPS，逐跳重定向复查
+- **仅 HTTPS** 出站流量，**每一跳都重新校验重定向**
+- **密钥隔离** —— API key / webhook secret 以引用形式存储，绝不暴露在 UI、Worker 输出或客户端 bundle 中
+- **at-least-once** 投递，配合稳定的 `eventId` + `deliveryId` 供接收方去重
+
+## 为可靠性而构建
+
+- **488 个测试**，覆盖服务、状态机、发送器、投递 Worker 与 i18n 核心
+- **SSRF 防护**的 webhook 与 email 发送器
+- **SQLite 并发经过测试** —— 原子 claim（CAS）+ `busy_timeout = 5000`
+- **自托管** —— 数据留在你自己的机器上
 
 ## 当前状态
 
@@ -111,6 +141,8 @@ DNS、SSL 与 HTTP 检查目前均为手动触发；自动调度计划在未来�
 通知管道已完全闭环：一次检查在**同一个事务**中写入其快照、事件与匹配的 pending 投递；投递 Worker 消费这些 pending 投递并调用发送器。从 UI 重试失败的投递可端到端工作。
 
 ## 通知 Worker（V0.7）
+
+![通知 — 渠道、规则、投递历史与重试](docs/screenshots/notifications-zh-CN.png)
 
 投递 Worker 是一个**一次性 CLI 进程**，消费通知管道记录的 `pending` 投递。它是在自托管部署上运行通知的推荐方式。
 
@@ -162,20 +194,6 @@ Worker 从不打印密钥：不打印 API key、不打印 `Authorization`/`Beare
 - **历史事件** — V0.7 不会为升级前记录的事件回溯生成投递；Worker 只消费当前的 `pending` 队列。
 - SQLite `busy_timeout = 5000` 已启用，Worker 与 Web 应用可并发写入而不会立即出现 `SQLITE_BUSY` 失败。
 - 无 daemon、无自动重试、无 backoff、无 max-attempts、无分布式队列（Redis/Kafka）、无 HTTP 调度 endpoint、无 serverless 调度器、无 SLA/可用性监控。
-
-## 快速开始
-
-```bash
-git clone https://github.com/hxx0611/Domain-Monitor.git
-cd Domain-Monitor
-pnpm install
-cp .env.example .env
-pnpm dev
-```
-
-打开 [http://localhost:3000](http://localhost:3000)。
-
-需要 Node.js >= 18 与 [pnpm](https://pnpm.io/)。支持 Linux、macOS 与 Windows。
 
 ## 测试
 
