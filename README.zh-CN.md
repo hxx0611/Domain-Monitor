@@ -81,9 +81,19 @@ Domain Monitor 帮助你跟踪自己拥有的域名：在本地存储域名、�
 - 通过原子 claim 实现并发 Worker 安全（SQLite CAS）
 - 多进程 SQLite 写入启用 `busy_timeout = 5000`
 
+### 双语 UI
+
+- Header 支持 **English / 简体中文** 语言切换
+- 语言感知的 UI 字典（所有用户可见文本均支持翻译）
+- 语言偏好存储在 `domain-monitor-locale` cookie 中
+  （`en` / `zh-CN`，默认 `en`）
+- Cookie + Server Action + `router.refresh()` —— 无 URL 前缀、无 middleware、
+  无第三方 i18n 依赖
+- 机器值（投递状态、事件类型、来源）绝不翻译
+
 ## 当前状态
 
-**当前版本：v0.7.0 — Notification System + Delivery Worker**
+**当前版本：v0.7.1 — 双语 UI / 简体中文支持**
 
 当前支持：
 
@@ -94,6 +104,7 @@ Domain Monitor 帮助你跟踪自己拥有的域名：在本地存储域名、�
 - HTTP 健康检查
 - 通知系统（email / webhook 渠道、规则、投递历史、手动重试）
 - 投递 Worker（自动 Event → Delivery → Send 管道，一次性 CLI + 外部 cron）
+- 双语 UI（English / 简体中文，基于 cookie 的语言切换）
 
 DNS、SSL 与 HTTP 检查目前均为手动触发；自动调度计划在未来的版本中提供。
 
@@ -172,7 +183,7 @@ pnpm dev
 pnpm test
 ```
 
-当前测试套件：**448 个测试**，覆盖域名校验、RDAP 解析、DNS 规范化与 diff、SSL 证书解析与 diff、HTTP 状态分类与 SSRF 防护抓取、DNS/SSL/HTTP 服务、通知事件/规则/投递状态机、SSRF 防护的 webhook 与 email 发送器、自动 Event → Delivery 生成、投递 Worker 与数据仓库。
+当前测试套件：**488 个测试**，覆盖域名校验、RDAP 解析、DNS 规范化与 diff、SSL 证书解析与 diff、HTTP 状态分类与 SSRF 防护抓取、DNS/SSL/HTTP 服务、通知事件/规则/投递状态机、SSRF 防护的 webhook 与 email 发送器、自动 Event → Delivery 生成、投递 Worker、语言感知的 i18n 核心（字典、cookie 回退、客户端/服务端边界）与数据仓库。
 
 推送改动前还需运行：
 

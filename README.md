@@ -81,9 +81,19 @@ Domain details view with RDAP information, DNS records, and DNS change history.
 - Concurrent-worker safe via atomic claim (SQLite CAS)
 - `busy_timeout = 5000` for multi-process SQLite writes
 
+### Bilingual UI
+
+- **English / 简体中文** language switching in the header
+- Locale-aware UI dictionary (all user-visible text is translated)
+- Language preference stored in the `domain-monitor-locale` cookie
+  (`en` / `zh-CN`, default `en`)
+- Cookie + Server Action + `router.refresh()` — no URL prefix, no middleware,
+  no third-party i18n dependency
+- Machine values (delivery status, event types, sources) are never translated
+
 ## Current Status
 
-**Current release: v0.7.0 — Notification System + Delivery Worker**
+**Current release: v0.7.1 — Bilingual UI / Simplified Chinese Support**
 
 Supported today:
 
@@ -94,6 +104,7 @@ Supported today:
 - HTTP health checks
 - Notification system (email / webhook channels, rules, delivery history, manual retry)
 - Delivery worker (automatic Event → Delivery → Send pipeline, one-shot CLI + external cron)
+- Bilingual UI (English / 简体中文, cookie-based locale switching)
 
 DNS, SSL and HTTP checks are currently manual; automatic scheduling is planned for a future release.
 
@@ -172,7 +183,7 @@ Requires Node.js >= 18 and [pnpm](https://pnpm.io/). Works on Linux, macOS, and 
 pnpm test
 ```
 
-Current test suite: **448 tests**, covering domain validation, RDAP parsing, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine, SSRF-guarded webhook and email senders, automatic Event → Delivery generation, the delivery worker, and the data repositories.
+Current test suite: **488 tests**, covering domain validation, RDAP parsing, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine, SSRF-guarded webhook and email senders, automatic Event → Delivery generation, the delivery worker, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
 
 Also run before pushing changes:
 
