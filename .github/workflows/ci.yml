@@ -8,7 +8,12 @@ on:
 
 jobs:
   build-and-lint:
+    name: build-and-lint (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24, 26]
 
     steps:
       - name: Checkout
@@ -20,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
 
       - name: Install dependencies
@@ -43,3 +48,36 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  # Windows fresh-install guard: better-sqlite3 ships prebuilt N-API binaries
+  # in the package, so a fresh install must never fall back to a node-gyp
+  # source build (which needs Python + Visual Studio Build Tools). This job
+  # would fail if the install pipeline started compiling from source.
+  windows-fresh-install:
+    name: windows-fresh-install (Node 24)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Prepare data directory
+        run: mkdir data
+
+      - name: Unit tests
+        run: pnpm test

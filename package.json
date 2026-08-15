@@ -21,7 +21,7 @@
     "worker": "tsx --conditions=react-server scripts/worker.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.44.7",
     "next": "^15.5.23",
     "react": "^19.2.8",
@@ -46,7 +46,7 @@
     "vitest": "^4.1.10"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "packageManager": "pnpm@11.2.2"
 }

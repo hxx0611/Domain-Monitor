@@ -2,7 +2,10 @@
 # See: https://pnpm.io/settings
 
 allowBuilds:
-  better-sqlite3: true
+  # better-sqlite3 ships prebuilt N-API binaries in the package; building it
+  # from source requires Python + a C++ toolchain (node-gyp), which breaks
+  # fresh installs on machines without one (e.g. Windows). Never build it.
+  better-sqlite3: false
   esbuild: true
   sharp: true
   unrs-resolver: true
