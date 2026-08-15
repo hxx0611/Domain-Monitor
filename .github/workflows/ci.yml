@@ -77,7 +77,7 @@ jobs:
         run: pnpm build
 
       - name: Prepare data directory
-        run: mkdir data
+        run: New-Item -ItemType Directory -Path data -Force | Out-Null
 
       - name: Unit tests
         run: pnpm test
