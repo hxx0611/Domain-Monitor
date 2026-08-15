@@ -20,4 +20,9 @@ const sqlite = new Database(databaseUrl);
 // clean up DNS snapshots/records when a domain is deleted, so enable them.
 sqlite.pragma("foreign_keys = ON");
 
+// V0.7: the delivery worker is a second process writing the same SQLite
+// file (next server + worker). Without a busy timeout, a concurrent write
+// fails immediately with SQLITE_BUSY; 5s lets the other writer finish.
+sqlite.pragma("busy_timeout = 5000");
+
 export const db = drizzle(sqlite, { schema });

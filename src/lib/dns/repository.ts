@@ -13,7 +13,7 @@ import { desc, eq, inArray } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { db } from "@/db";
 import { dnsRecords, dnsSnapshots, type Schema } from "@/db/schema";
-import { insertNotificationEvents } from "@/lib/notifications/repository";
+import { insertEventsAndGenerateDeliveries } from "@/lib/notifications/service";
 import type { NotificationEvent } from "@/lib/notifications/types";
 import type { DnsRecord, DnsSnapshot } from "./types";
 
@@ -58,7 +58,7 @@ export function createDnsSnapshot(
         .run();
     }
 
-    insertNotificationEvents(tx, events);
+    insertEventsAndGenerateDeliveries(tx, events);
 
     return snapshot.id;
   });

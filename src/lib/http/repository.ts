@@ -14,7 +14,7 @@ import { desc, eq } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { db } from "@/db";
 import { httpSnapshots, type Schema } from "@/db/schema";
-import { insertNotificationEvents } from "@/lib/notifications/repository";
+import { insertEventsAndGenerateDeliveries } from "@/lib/notifications/service";
 import type { NotificationEvent } from "@/lib/notifications/types";
 import type { HttpSnapshot, HttpStatus } from "./types";
 
@@ -59,7 +59,7 @@ export function createHttpSnapshot(
       .returning({ id: httpSnapshots.id })
       .get();
 
-    insertNotificationEvents(tx, events);
+    insertEventsAndGenerateDeliveries(tx, events);
 
     return row.id;
   });

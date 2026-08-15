@@ -30,15 +30,21 @@ export type NotificationDb = BetterSQLite3Database<Schema>;
  * Insert events into `notification_events` within the caller's transaction.
  * No-op for an empty list. Duplicate `dedupKey` rows are ignored (UNIQUE
  * index is the backstop; the check itself still commits).
+ *
+ * Returns one entry per input event, aligned by position: the inserted row
+ * id, or null when the dedupKey already existed (the row was skipped). The
+ * alignment is built via a dedupKey → id map — RETURNING only yields the
+ * actually-inserted rows (no order/length guarantee vs. the input), so
+ * positional alignment is NOT possible (verified experimentally).
  */
 export function insertNotificationEvents(
   target: BetterSQLite3Database<Schema>,
   events: NotificationEvent[],
-): void {
+): (number | null)[] {
   if (events.length === 0) {
-    return;
+    return [];
   }
-  target
+  const rows = target
     .insert(notificationEvents)
     .values(
       events.map((event) => ({
@@ -52,7 +58,10 @@ export function insertNotificationEvents(
       })),
     )
     .onConflictDoNothing()
-    .run();
+    .returning({ id: notificationEvents.id, dedupKey: notificationEvents.dedupKey })
+    .all();
+  const idByKey = new Map(rows.map((row) => [row.dedupKey, row.id]));
+  return events.map((event) => idByKey.get(event.dedupKey) ?? null);
 }
 
 // ---------------------------------------------------------------------------
@@ -216,10 +225,16 @@ export function retryDelivery(deliveryId: number, target: NotificationDb = db): 
  * Recover deliveries stuck in `sending` past the stale threshold (worker
  * crashed mid-send): sending → pending so they can be claimed again.
  * Returns the number of recovered deliveries.
+ *
+ * Default threshold is 5 minutes (V0.7): a sender can spend up to ~48s on
+ * one attempt (6 hops × 8s timeout), so 60s left too little margin and a
+ * slow-but-alive send could be recovered while still in flight, causing a
+ * duplicate send. 5 minutes keeps at-least-once semantics without racing
+ * in-flight attempts.
  */
 export function recoverStaleSending(
   target: NotificationDb = db,
-  staleAfterMs: number = 60_000,
+  staleAfterMs: number = 300_000,
   now: Date = new Date(),
 ): number {
   const cutoff = new Date(now.getTime() - staleAfterMs);
@@ -309,6 +324,24 @@ export function getEvent(
   target: NotificationDb = db,
 ): typeof notificationEvents.$inferSelect | undefined {
   return target.select().from(notificationEvents).where(eq(notificationEvents.id, eventId)).get();
+}
+
+/**
+ * Up to `limit` pending deliveries, oldest first (FIFO by id).
+ * Read-only: the worker claims each one via `claimPendingDelivery` (CAS)
+ * afterwards — this query never changes state.
+ */
+export function getPendingDeliveries(
+  limit: number,
+  target: NotificationDb = db,
+): (typeof notificationDeliveries.$inferSelect)[] {
+  return target
+    .select()
+    .from(notificationDeliveries)
+    .where(eq(notificationDeliveries.status, "pending"))
+    .orderBy(notificationDeliveries.id)
+    .limit(limit)
+    .all();
 }
 
 /** A delivery row joined with its channel name/type and event details. */

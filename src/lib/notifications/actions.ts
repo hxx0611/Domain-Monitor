@@ -13,11 +13,11 @@ import {
   type RuleWithChannelRow,
 } from "./repository";
 import { deliverDelivery } from "./service";
-import { WebhookSender, parseWebhookConfig } from "./senders/webhook";
-import { EmailSender, parseEmailConfig } from "./senders/email";
+import { parseWebhookConfig } from "./senders/webhook";
+import { parseEmailConfig } from "./senders/email";
+import { createSender } from "./senders/factory";
 import type {
   ChannelType,
-  DeliverySender,
   DeliveryStatus,
   NotificationEvent,
   NotificationEventType,
@@ -162,15 +162,8 @@ export async function retryDeliveryAction(deliveryId: number): Promise<RetryDeli
 // Display mapping (module-private)
 // ---------------------------------------------------------------------------
 
-/** Instantiate the sender for a channel type. Email/webhook only (V0.6). */
-function createSender(type: ChannelType): DeliverySender {
-  switch (type) {
-    case "email":
-      return new EmailSender();
-    case "webhook":
-      return new WebhookSender();
-  }
-}
+// Sender instantiation lives in senders/factory.ts (shared with the V0.7
+// delivery worker); actions.ts only needs the ChannelType import for views.
 
 /** Convert a persisted event row back to the pure NotificationEvent shape. */
 function toNotificationEvent(row: NotificationEventRow): NotificationEvent {
