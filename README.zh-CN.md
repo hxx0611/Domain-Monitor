@@ -40,7 +40,7 @@ pnpm dev
 
 打开 [http://localhost:3000](http://localhost:3000)。
 
-需要 Node.js >= 18 与 [pnpm](https://pnpm.io/)。支持 Linux、macOS 与 Windows。
+需要 **Node.js 22 LTS 或更新版本**（推荐 22 LTS；24 / 26 已纳入 CI 兼容性测试）与 [pnpm](https://pnpm.io/)。支持 Linux、macOS 与 Windows。better-sqlite3 随包携带预编译二进制，直接 `pnpm install` 即可，无需 Python 或 C++ 构建工具链。
 
 ## 功能
 
