@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { checkHttpAction } from "@/lib/http/actions";
+import type { CheckButtonLabels } from "./check-dns-button";
 
 /**
  * Manual HTTP health check trigger. Runs the server action, then refreshes
@@ -10,7 +11,13 @@ import { checkHttpAction } from "@/lib/http/actions";
  * snapshot. The button is disabled while a check is running (client-side
  * guard on top of the service's in-flight guard).
  */
-export function CheckHttpButton({ domainId }: { domainId: number }) {
+export function CheckHttpButton({
+  domainId,
+  labels,
+}: {
+  domainId: number;
+  labels: CheckButtonLabels;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +50,7 @@ export function CheckHttpButton({ domainId }: { domainId: number }) {
         disabled={isPending}
         className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-60"
       >
-        {isPending ? "Checking…" : "Check HTTP"}
+        {isPending ? labels.checking : labels.check}
       </button>
     </div>
   );

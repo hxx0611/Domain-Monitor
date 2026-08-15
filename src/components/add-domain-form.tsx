@@ -4,7 +4,15 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createDomainAction } from "@/lib/domains/actions";
 
-export function AddDomainForm() {
+export interface AddDomainFormLabels {
+  add: string;
+  adding: string;
+  cancel: string;
+  domain: string;
+  formHint: string;
+}
+
+export function AddDomainForm({ labels }: { labels: AddDomainFormLabels }) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [hostname, setHostname] = useState("");
@@ -37,7 +45,7 @@ export function AddDomainForm() {
         onClick={() => setIsOpen(true)}
         className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
       >
-        Add Domain
+        {labels.add}
       </button>
     );
   }
@@ -45,7 +53,7 @@ export function AddDomainForm() {
   return (
     <form onSubmit={handleSubmit} className="max-w-md">
       <label htmlFor="domain-input" className="mb-1.5 block text-sm font-medium text-gray-700">
-        Domain
+        {labels.domain}
       </label>
       <div className="flex gap-2">
         <input
@@ -63,7 +71,7 @@ export function AddDomainForm() {
           disabled={isPending}
           className="shrink-0 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-60"
         >
-          {isPending ? "Adding…" : "Add Domain"}
+          {isPending ? labels.adding : labels.add}
         </button>
       </div>
 
@@ -72,9 +80,7 @@ export function AddDomainForm() {
           {error}
         </p>
       ) : (
-        <p className="mt-2 text-xs text-gray-500">
-          Accepts URLs and bare hostnames (e.g. https://example.com/path → example.com).
-        </p>
+        <p className="mt-2 text-xs text-gray-500">{labels.formHint}</p>
       )}
 
       <button
@@ -85,7 +91,7 @@ export function AddDomainForm() {
         }}
         className="mt-3 text-sm text-gray-500 hover:text-gray-700 hover:underline"
       >
-        Cancel
+        {labels.cancel}
       </button>
     </form>
   );

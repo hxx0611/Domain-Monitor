@@ -2,10 +2,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDomainById } from "@/lib/domains";
 import { formatDate } from "@/lib/format";
+import { getDictionary, getLocale } from "@/lib/i18n";
+import { interpolate } from "@/lib/i18n/config";
+import { lookup } from "@/lib/i18n/display";
+import type { Dictionary } from "@/lib/i18n/en";
 import { RefreshRdapButton } from "@/components/refresh-rdap-button";
 import { CheckDnsButton } from "@/components/check-dns-button";
 import { CheckSslButton } from "@/components/check-ssl-button";
 import { CheckHttpButton } from "@/components/check-http-button";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { getDnsSnapshots, getLatestDnsSnapshot } from "@/lib/dns/repository";
 import { diffDnsSnapshots } from "@/lib/dns";
 import { DNS_RECORD_TYPES, type DnsRecord } from "@/lib/dns";
@@ -13,25 +18,30 @@ import { getSslHistory, getLatestSslSnapshot } from "@/lib/ssl/repository";
 import { daysRemaining, type SslStatus } from "@/lib/ssl";
 import { getHttpHistory, getLatestHttpSnapshot } from "@/lib/http/repository";
 import { type HttpStatus } from "@/lib/http";
+import type { Locale } from "@/lib/i18n/config";
 
 export const dynamic = "force-dynamic";
 
-function InfoRow({ label, value }: { label: string; value?: string }) {
+function InfoRow({ label, value, dict }: { label: string; value?: string; dict: Dictionary }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3">
-      <dt className="shrink-0 text-gray-500">{label}</dt>
+      <dt className="shrink-0 text-gray-500">{lookup(dict, label)}</dt>
       <dd className="min-w-0 break-words text-right font-medium text-gray-900">
-        {value ? value : <span className="font-normal text-gray-400">Not available</span>}
+        {value ? (
+          value
+        ) : (
+          <span className="font-normal text-gray-400">{lookup(dict, "common.notAvailable")}</span>
+        )}
       </dd>
     </div>
   );
 }
 
 /** Fingerprint row: hex strings need break-all to wrap on narrow screens. */
-function FingerprintRow({ value }: { value: string }) {
+function FingerprintRow({ value, dict }: { value: string; dict: Dictionary }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3">
-      <dt className="shrink-0 text-gray-500">Fingerprint</dt>
+      <dt className="shrink-0 text-gray-500">{lookup(dict, "ssl.fingerprint")}</dt>
       <dd className="min-w-0 break-all text-right font-mono text-xs text-gray-900">{value}</dd>
     </div>
   );
@@ -45,81 +55,81 @@ function formatRecordValue(record: DnsRecord): string {
 }
 
 /** SSL status badge: label + color classes, mirroring the DNS status pill. */
-function SslStatusBadge({ status }: { status: SslStatus }) {
-  const config: Record<SslStatus, { label: string; className: string; dot: string }> = {
+function SslStatusBadge({ status, dict }: { status: SslStatus; dict: Dictionary }) {
+  const config: Record<SslStatus, { key: string; className: string; dot: string }> = {
     ok: {
-      label: "Valid",
+      key: "status.valid",
       className: "bg-green-50 text-green-700",
       dot: "bg-green-500",
     },
     expires_soon: {
-      label: "Expires soon",
+      key: "status.expiresSoon",
       className: "bg-amber-50 text-amber-700",
       dot: "bg-amber-500",
     },
     expired: {
-      label: "Expired",
+      key: "status.expired",
       className: "bg-red-50 text-red-700",
       dot: "bg-red-500",
     },
     mismatch: {
-      label: "Hostname mismatch",
+      key: "status.mismatch",
       className: "bg-red-50 text-red-700",
       dot: "bg-red-500",
     },
     error: {
-      label: "Error",
+      key: "status.error",
       className: "bg-gray-100 text-gray-600",
       dot: "bg-gray-400",
     },
   };
-  const { label, className, dot } = config[status];
+  const { key, className, dot } = config[status];
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}
     >
       <span className={`size-1.5 rounded-full ${dot}`} />
-      {label}
+      {lookup(dict, key)}
     </span>
   );
 }
 
 /** HTTP status badge, mirroring the SSL badge style. */
-function HttpStatusBadge({ status }: { status: HttpStatus }) {
-  const config: Record<HttpStatus, { label: string; className: string; dot: string }> = {
+function HttpStatusBadge({ status, dict }: { status: HttpStatus; dict: Dictionary }) {
+  const config: Record<HttpStatus, { key: string; className: string; dot: string }> = {
     ok: {
-      label: "Up",
+      key: "status.up",
       className: "bg-green-50 text-green-700",
       dot: "bg-green-500",
     },
     client_error: {
-      label: "Client error",
+      key: "status.clientError",
       className: "bg-amber-50 text-amber-700",
       dot: "bg-amber-500",
     },
     server_error: {
-      label: "Server error",
+      key: "status.serverError",
       className: "bg-red-50 text-red-700",
       dot: "bg-red-500",
     },
     down: {
-      label: "Down",
+      key: "status.down",
       className: "bg-red-50 text-red-700",
       dot: "bg-red-500",
     },
     error: {
-      label: "Error",
+      key: "status.error",
       className: "bg-gray-100 text-gray-600",
       dot: "bg-gray-400",
     },
   };
-  const { label, className, dot } = config[status];
+  const { key, className, dot } = config[status];
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}
     >
       <span className={`size-1.5 rounded-full ${dot}`} />
-      {label}
+      {lookup(dict, key)}
     </span>
   );
 }
@@ -138,6 +148,9 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
     notFound();
   }
 
+  const locale: Locale = await getLocale();
+  const dict = getDictionary(locale);
+
   const rdapAvailable = domain.rdapUpdatedAt !== null;
 
   const latestSnapshot = getLatestDnsSnapshot(domain.id);
@@ -153,10 +166,11 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-12">
-      <nav className="mb-6">
+      <nav className="mb-6 flex items-center justify-between gap-4">
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 hover:underline">
-          ← Back to dashboard
+          {lookup(dict, "nav.backToDashboard")}
         </Link>
+        <LanguageSwitcher locale={locale} />
       </nav>
 
       <header className="mb-8">
@@ -166,85 +180,114 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
       <section className="mb-10 rounded-lg border border-gray-200">
         <dl className="divide-y divide-gray-100 text-sm">
           <div className="flex items-center justify-between px-4 py-3">
-            <dt className="text-gray-500">Domain</dt>
+            <dt className="text-gray-500">{lookup(dict, "domains.col.domain")}</dt>
             <dd className="font-medium text-gray-900">{domain.hostname}</dd>
           </div>
           <div className="flex items-center justify-between px-4 py-3">
-            <dt className="text-gray-500">Status</dt>
+            <dt className="text-gray-500">{lookup(dict, "domains.col.status")}</dt>
             <dd>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
                 <span className="size-1.5 rounded-full bg-green-500" />
-                {domain.status === "active" ? "Active" : domain.status}
+                {domain.status === "active" ? lookup(dict, "status.active") : domain.status}
               </span>
             </dd>
           </div>
           <div className="flex items-center justify-between px-4 py-3">
-            <dt className="text-gray-500">Created</dt>
-            <dd className="text-gray-900">{formatDate(domain.createdAt)}</dd>
+            <dt className="text-gray-500">{lookup(dict, "domains.col.created")}</dt>
+            <dd className="text-gray-900">{formatDate(domain.createdAt, locale)}</dd>
           </div>
           <div className="flex items-center justify-between px-4 py-3">
-            <dt className="text-gray-500">Last updated</dt>
-            <dd className="text-gray-900">{formatDate(domain.updatedAt)}</dd>
+            <dt className="text-gray-500">{lookup(dict, "common.lastUpdated")}</dt>
+            <dd className="text-gray-900">{formatDate(domain.updatedAt, locale)}</dd>
           </div>
         </dl>
       </section>
 
       <section className="mb-10 rounded-lg border border-gray-200">
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-900">Domain Information</h2>
-          <RefreshRdapButton id={domain.id} />
+          <h2 className="text-sm font-semibold text-gray-900">
+            {lookup(dict, "rdap.sectionTitle")}
+          </h2>
+          <RefreshRdapButton
+            id={domain.id}
+            labels={{
+              refresh: lookup(dict, "actions.refreshRdap"),
+              refreshing: lookup(dict, "actions.refreshing"),
+            }}
+          />
         </div>
 
         {rdapAvailable ? (
           <dl className="divide-y divide-gray-100 text-sm">
-            <InfoRow label="Registrar" value={domain.registrar ?? undefined} />
+            <InfoRow label="rdap.registrar" value={domain.registrar ?? undefined} dict={dict} />
             <InfoRow
-              label="Registration"
+              label="rdap.registration"
               value={
-                domain.registrationDate ? formatDate(new Date(domain.registrationDate)) : undefined
+                domain.registrationDate
+                  ? formatDate(new Date(domain.registrationDate), locale)
+                  : undefined
               }
+              dict={dict}
             />
             <InfoRow
-              label="Expiration"
+              label="rdap.expiration"
               value={
-                domain.expirationDate ? formatDate(new Date(domain.expirationDate)) : undefined
+                domain.expirationDate
+                  ? formatDate(new Date(domain.expirationDate), locale)
+                  : undefined
               }
+              dict={dict}
             />
             <InfoRow
-              label="Last updated"
-              value={domain.updatedDate ? formatDate(new Date(domain.updatedDate)) : undefined}
+              label="common.lastUpdated"
+              value={
+                domain.updatedDate ? formatDate(new Date(domain.updatedDate), locale) : undefined
+              }
+              dict={dict}
             />
             <InfoRow
-              label="Nameservers"
+              label="rdap.nameservers"
               value={domain.nameservers.length > 0 ? domain.nameservers.join(", ") : undefined}
+              dict={dict}
             />
             <InfoRow
-              label="Status"
+              label="rdap.status"
               value={domain.rdapStatus.length > 0 ? domain.rdapStatus.join(", ") : undefined}
+              dict={dict}
             />
           </dl>
         ) : (
-          <p className="px-4 py-6 text-sm text-gray-500">RDAP information unavailable.</p>
+          <p className="px-4 py-6 text-sm text-gray-500">{lookup(dict, "rdap.unavailable")}</p>
         )}
       </section>
 
       <section className="mb-10 rounded-lg border border-gray-200">
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-900">DNS Monitoring</h2>
-          <CheckDnsButton domainId={domain.id} />
+          <h2 className="text-sm font-semibold text-gray-900">
+            {lookup(dict, "dns.sectionTitle")}
+          </h2>
+          <CheckDnsButton
+            domainId={domain.id}
+            labels={{
+              check: lookup(dict, "actions.checkDns"),
+              checking: lookup(dict, "actions.checking"),
+            }}
+          />
         </div>
 
         <div className="border-b border-gray-100 px-4 py-3 text-sm">
-          <span className="text-gray-500">Last checked:</span>{" "}
+          <span className="text-gray-500">{lookup(dict, "dns.lastChecked")}</span>{" "}
           <span className="font-medium text-gray-900">
-            {latestSnapshot ? formatDate(latestSnapshot.checkedAt) : "Never checked"}
+            {latestSnapshot
+              ? formatDate(latestSnapshot.checkedAt, locale)
+              : lookup(dict, "dns.neverChecked")}
           </span>
         </div>
 
         {latestChanges.length > 0 ? (
           <div className="border-b border-gray-100 px-4 py-4">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-              DNS Changes
+              {lookup(dict, "dns.changesTitle")}
             </h3>
             <ul className="space-y-1.5 text-sm">
               {latestChanges.map((change, index) => (
@@ -253,8 +296,11 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
                   className={change.type === "RECORD_ADDED" ? "text-green-700" : "text-red-600"}
                 >
                   <span className="font-medium">
-                    {change.record.type} record{" "}
-                    {change.type === "RECORD_ADDED" ? "added" : "removed"}
+                    {change.type === "RECORD_ADDED"
+                      ? interpolate(lookup(dict, "dns.recordAdded"), { type: change.record.type })
+                      : interpolate(lookup(dict, "dns.recordRemoved"), {
+                          type: change.record.type,
+                        })}
                   </span>{" "}
                   — <span className="font-mono">{formatRecordValue(change.record)}</span>
                 </li>
@@ -265,7 +311,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
 
         <div className="border-b border-gray-100 px-4 py-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            DNS Records
+            {lookup(dict, "dns.recordsTitle")}
           </h3>
           {latestSnapshot && latestSnapshot.records.length > 0 ? (
             <div className="space-y-4">
@@ -288,14 +334,16 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
             </div>
           ) : (
             <p className="text-sm text-gray-500">
-              {latestSnapshot ? "No records found." : "Run a DNS check to see records."}
+              {latestSnapshot
+                ? lookup(dict, "dns.empty.records")
+                : lookup(dict, "dns.empty.runCheck")}
             </p>
           )}
         </div>
 
         <div className="px-4 py-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            DNS History
+            {lookup(dict, "dns.historyTitle")}
           </h3>
           {history.length > 0 ? (
             <ul className="divide-y divide-gray-50 text-sm">
@@ -304,76 +352,101 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
                 const changeCount = previous ? diffDnsSnapshots(previous, snapshot).length : 0;
                 return (
                   <li key={snapshot.id} className="flex items-center justify-between py-1.5">
-                    <span className="text-gray-900">{formatDate(snapshot.checkedAt)}</span>
+                    <span className="text-gray-900">{formatDate(snapshot.checkedAt, locale)}</span>
                     <span
                       className={changeCount > 0 ? "font-medium text-amber-600" : "text-gray-500"}
                     >
                       {previous === undefined
-                        ? "First check"
+                        ? lookup(dict, "history.firstCheck")
                         : changeCount === 0
-                          ? "No changes"
-                          : `${changeCount} record${changeCount === 1 ? "" : "s"} changed`}
+                          ? lookup(dict, "history.noChanges")
+                          : interpolate(lookup(dict, "history.recordsChanged"), {
+                              count: changeCount,
+                            })}
                     </span>
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <p className="text-sm text-gray-500">No checks yet.</p>
+            <p className="text-sm text-gray-500">{lookup(dict, "history.noChecks")}</p>
           )}
         </div>
       </section>
 
       <section className="mb-10 rounded-lg border border-gray-200">
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-900">SSL Certificate Monitoring</h2>
-          <CheckSslButton domainId={domain.id} />
+          <h2 className="text-sm font-semibold text-gray-900">
+            {lookup(dict, "ssl.sectionTitle")}
+          </h2>
+          <CheckSslButton
+            domainId={domain.id}
+            labels={{
+              check: lookup(dict, "actions.checkSsl"),
+              checking: lookup(dict, "actions.checking"),
+            }}
+          />
         </div>
 
         <div className="border-b border-gray-100 px-4 py-3 text-sm">
-          <span className="text-gray-500">Last checked:</span>{" "}
+          <span className="text-gray-500">{lookup(dict, "dns.lastChecked")}</span>{" "}
           <span className="font-medium text-gray-900">
-            {latestSsl ? formatDate(latestSsl.checkedAt) : "Never checked"}
+            {latestSsl ? formatDate(latestSsl.checkedAt, locale) : lookup(dict, "dns.neverChecked")}
           </span>
         </div>
 
         {latestSsl && latestSsl.status !== "error" && latestSsl.certificate ? (
           <>
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 text-sm">
-              <dt className="text-gray-500">Certificate status</dt>
+              <dt className="text-gray-500">{lookup(dict, "ssl.certStatus")}</dt>
               <dd>
-                <SslStatusBadge status={latestSsl.status} />
+                <SslStatusBadge status={latestSsl.status} dict={dict} />
                 {latestSsl.certificate.validTo ? (
                   <span className="ml-2 text-gray-600">
-                    {formatDate(new Date(latestSsl.certificate.validTo))}
-                    {` (${daysRemaining(new Date(latestSsl.certificate.validTo))} days remaining)`}
+                    {formatDate(new Date(latestSsl.certificate.validTo), locale)}
+                    {` (${interpolate(lookup(dict, "ssl.daysRemaining"), {
+                      count: daysRemaining(new Date(latestSsl.certificate.validTo)),
+                    })})`}
                   </span>
                 ) : null}
               </dd>
             </div>
             <dl className="divide-y divide-gray-100 text-sm">
-              <InfoRow label="Issuer" value={latestSsl.certificate.issuer ?? undefined} />
-              <InfoRow label="Subject" value={latestSsl.certificate.subject ?? undefined} />
               <InfoRow
-                label="SAN"
+                label="ssl.issuer"
+                value={latestSsl.certificate.issuer ?? undefined}
+                dict={dict}
+              />
+              <InfoRow
+                label="ssl.subject"
+                value={latestSsl.certificate.subject ?? undefined}
+                dict={dict}
+              />
+              <InfoRow
+                label="ssl.san"
                 value={
                   latestSsl.certificate.san.length > 0
                     ? latestSsl.certificate.san.join(", ")
                     : undefined
                 }
+                dict={dict}
               />
-              <FingerprintRow value={latestSsl.certificate.fingerprint256} />
-              <InfoRow label="TLS version" value={latestSsl.tlsVersion ?? undefined} />
-              <InfoRow label="Cipher" value={latestSsl.cipherName ?? undefined} />
+              <FingerprintRow value={latestSsl.certificate.fingerprint256} dict={dict} />
+              <InfoRow
+                label="ssl.tlsVersion"
+                value={latestSsl.tlsVersion ?? undefined}
+                dict={dict}
+              />
+              <InfoRow label="ssl.cipher" value={latestSsl.cipherName ?? undefined} dict={dict} />
             </dl>
           </>
         ) : latestSsl && latestSsl.status === "error" ? (
-          <p className="px-4 py-6 text-sm text-gray-500">SSL monitoring unavailable.</p>
+          <p className="px-4 py-6 text-sm text-gray-500">{lookup(dict, "ssl.unavailable")}</p>
         ) : null}
 
         <div className="px-4 py-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            SSL History
+            {lookup(dict, "ssl.historyTitle")}
           </h3>
           {sslHistory.length > 0 ? (
             <ul className="divide-y divide-gray-50 text-sm">
@@ -386,7 +459,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
                   previous.certificate.fingerprint256 !== snapshot.certificate.fingerprint256;
                 return (
                   <li key={snapshot.id} className="flex items-center justify-between gap-3 py-1.5">
-                    <span className="text-gray-900">{formatDate(snapshot.checkedAt)}</span>
+                    <span className="text-gray-900">{formatDate(snapshot.checkedAt, locale)}</span>
                     <span
                       className={
                         snapshot.status === "expired" || snapshot.status === "mismatch"
@@ -399,76 +472,94 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
                       }
                     >
                       {previous === undefined
-                        ? "First check"
+                        ? lookup(dict, "history.firstCheck")
                         : snapshot.status === "error"
-                          ? "Unavailable"
+                          ? lookup(dict, "ssl.unavailable")
                           : replaced
-                            ? "Certificate replaced"
-                            : "No changes"}
+                            ? lookup(dict, "ssl.certReplaced")
+                            : lookup(dict, "history.noChanges")}
                     </span>
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <p className="text-sm text-gray-500">No checks yet.</p>
+            <p className="text-sm text-gray-500">{lookup(dict, "history.noChecks")}</p>
           )}
         </div>
       </section>
 
       <section className="mb-10 rounded-lg border border-gray-200">
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-900">HTTP Health Checks</h2>
-          <CheckHttpButton domainId={domain.id} />
+          <h2 className="text-sm font-semibold text-gray-900">
+            {lookup(dict, "http.sectionTitle")}
+          </h2>
+          <CheckHttpButton
+            domainId={domain.id}
+            labels={{
+              check: lookup(dict, "actions.checkHttp"),
+              checking: lookup(dict, "actions.checking"),
+            }}
+          />
         </div>
 
         <div className="border-b border-gray-100 px-4 py-3 text-sm">
-          <span className="text-gray-500">Last checked:</span>{" "}
+          <span className="text-gray-500">{lookup(dict, "dns.lastChecked")}</span>{" "}
           <span className="font-medium text-gray-900">
-            {latestHttp ? formatDate(latestHttp.checkedAt) : "Never checked"}
+            {latestHttp
+              ? formatDate(latestHttp.checkedAt, locale)
+              : lookup(dict, "dns.neverChecked")}
           </span>
         </div>
 
         {latestHttp && latestHttp.status !== "error" ? (
           <dl className="divide-y divide-gray-100 text-sm">
             <div className="flex items-center justify-between gap-4 px-4 py-3">
-              <dt className="shrink-0 text-gray-500">Status</dt>
+              <dt className="shrink-0 text-gray-500">{lookup(dict, "domains.col.status")}</dt>
               <dd className="flex items-center gap-2 text-right font-medium text-gray-900">
-                <HttpStatusBadge status={latestHttp.status} />
+                <HttpStatusBadge status={latestHttp.status} dict={dict} />
                 {latestHttp.httpStatus !== undefined ? (
-                  <span className="text-gray-600">HTTP {latestHttp.httpStatus}</span>
+                  <span className="text-gray-600">
+                    {interpolate(lookup(dict, "http.httpStatus"), {
+                      code: latestHttp.httpStatus,
+                    })}
+                  </span>
                 ) : null}
                 {latestHttp.responseTimeMs !== undefined ? (
-                  <span className="text-gray-600">{latestHttp.responseTimeMs} ms</span>
+                  <span className="text-gray-600">
+                    {interpolate(lookup(dict, "http.responseTime"), {
+                      ms: latestHttp.responseTimeMs,
+                    })}
+                  </span>
                 ) : null}
               </dd>
             </div>
             <div className="flex items-center justify-between gap-4 px-4 py-3">
-              <dt className="shrink-0 text-gray-500">Redirects</dt>
+              <dt className="shrink-0 text-gray-500">{lookup(dict, "http.redirects")}</dt>
               <dd className="text-right font-medium text-gray-900">
                 {latestHttp.redirectCount > 0 ? (
                   <span>
                     {latestHttp.redirectCount} ({latestHttp.finalUrl ?? ""})
                   </span>
                 ) : (
-                  "None"
+                  lookup(dict, "http.none")
                 )}
               </dd>
             </div>
             <div className="flex items-center justify-between gap-4 px-4 py-3">
-              <dt className="shrink-0 text-gray-500">Final URL</dt>
+              <dt className="shrink-0 text-gray-500">{lookup(dict, "http.finalUrl")}</dt>
               <dd className="min-w-0 break-all text-right font-mono text-xs text-gray-900">
                 {latestHttp.finalUrl ?? "—"}
               </dd>
             </div>
           </dl>
         ) : latestHttp && latestHttp.status === "error" ? (
-          <p className="px-4 py-6 text-sm text-gray-500">HTTP monitoring unavailable.</p>
+          <p className="px-4 py-6 text-sm text-gray-500">{lookup(dict, "http.unavailable")}</p>
         ) : null}
 
         <div className="px-4 py-4">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            HTTP History
+            {lookup(dict, "http.historyTitle")}
           </h3>
           {httpHistory.length > 0 ? (
             <ul className="divide-y divide-gray-50 text-sm">
@@ -478,7 +569,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
                 const statusChanged = previous !== undefined && previous.status !== snapshot.status;
                 return (
                   <li key={snapshot.id} className="flex items-center justify-between gap-3 py-1.5">
-                    <span className="text-gray-900">{formatDate(snapshot.checkedAt)}</span>
+                    <span className="text-gray-900">{formatDate(snapshot.checkedAt, locale)}</span>
                     <span
                       className={
                         snapshot.status === "server_error" || snapshot.status === "down"
@@ -491,17 +582,17 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
                       }
                     >
                       {previous === undefined
-                        ? "First check"
+                        ? lookup(dict, "history.firstCheck")
                         : snapshot.status === "error"
-                          ? "Unavailable"
+                          ? lookup(dict, "http.unavailable")
                           : statusChanged
-                            ? `Status changed → ${snapshot.status}`
+                            ? interpolate(lookup(dict, "http.statusChanged"), {
+                                status: snapshot.status,
+                              })
                             : snapshot.httpStatus !== undefined
-                              ? `HTTP ${snapshot.httpStatus}${
-                                  snapshot.responseTimeMs !== undefined
-                                    ? ` · ${snapshot.responseTimeMs} ms`
-                                    : ""
-                                }`
+                              ? `${interpolate(lookup(dict, "http.httpStatus"), {
+                                  code: snapshot.httpStatus,
+                                })}${snapshot.responseTimeMs !== undefined ? ` · ${interpolate(lookup(dict, "http.responseTime"), { ms: snapshot.responseTimeMs })}` : ""}`
                               : snapshot.status}
                     </span>
                   </li>
@@ -509,7 +600,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
               })}
             </ul>
           ) : (
-            <p className="text-sm text-gray-500">No checks yet.</p>
+            <p className="text-sm text-gray-500">{lookup(dict, "history.noChecks")}</p>
           )}
         </div>
       </section>

@@ -4,13 +4,24 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { retryDeliveryAction } from "@/lib/notifications/actions";
 
+export interface RetryDeliveryButtonLabels {
+  retry: string;
+  retrying: string;
+}
+
 /**
  * Retry a failed delivery. Runs the server action, then refreshes the
  * route so the table re-renders with the new delivery state. Errors are
  * user-safe (the action layer guarantees secret-free messages). Mirrors
  * the CheckDnsButton pattern: useTransition + router.refresh + role="alert".
  */
-export function RetryDeliveryButton({ deliveryId }: { deliveryId: number }) {
+export function RetryDeliveryButton({
+  deliveryId,
+  labels,
+}: {
+  deliveryId: number;
+  labels: RetryDeliveryButtonLabels;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +54,7 @@ export function RetryDeliveryButton({ deliveryId }: { deliveryId: number }) {
         disabled={isPending}
         className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-60"
       >
-        {isPending ? "Retrying…" : "Retry"}
+        {isPending ? labels.retrying : labels.retry}
       </button>
     </div>
   );

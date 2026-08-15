@@ -4,7 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { refreshRdapAction } from "@/lib/domains/actions";
 
-export function RefreshRdapButton({ id }: { id: number }) {
+export interface RefreshRdapButtonLabels {
+  refresh: string;
+  refreshing: string;
+}
+
+export function RefreshRdapButton({ id, labels }: { id: number; labels: RefreshRdapButtonLabels }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +42,7 @@ export function RefreshRdapButton({ id }: { id: number }) {
         disabled={isPending}
         className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-60"
       >
-        {isPending ? "Refreshing…" : "Refresh RDAP"}
+        {isPending ? labels.refreshing : labels.refresh}
       </button>
     </div>
   );

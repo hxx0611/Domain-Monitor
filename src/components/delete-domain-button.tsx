@@ -4,12 +4,28 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { deleteDomainAction } from "@/lib/domains/actions";
 
-export function DeleteDomainButton({ id, hostname }: { id: number; hostname: string }) {
+export interface DeleteDomainButtonLabels {
+  delete: string;
+  deleting: string;
+  /** Template with {hostname} placeholder, interpolated client-side. */
+  confirmTemplate: string;
+}
+
+export function DeleteDomainButton({
+  id,
+  hostname,
+  labels,
+}: {
+  id: number;
+  hostname: string;
+  labels: DeleteDomainButtonLabels;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   function handleDelete() {
-    if (!window.confirm(`Delete ${hostname}?`)) {
+    const message = labels.confirmTemplate.replace("{hostname}", hostname);
+    if (!window.confirm(message)) {
       return;
     }
 
@@ -32,7 +48,7 @@ export function DeleteDomainButton({ id, hostname }: { id: number; hostname: str
       disabled={isPending}
       className="text-sm font-medium text-red-600 hover:text-red-800 hover:underline disabled:opacity-60"
     >
-      {isPending ? "Deleting…" : "Delete"}
+      {isPending ? labels.deleting : labels.delete}
     </button>
   );
 }
