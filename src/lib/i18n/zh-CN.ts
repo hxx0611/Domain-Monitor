@@ -48,7 +48,7 @@ export const zhCN = {
       domain: "域名",
       status: "状态",
       expiration: "到期时间",
-      created: "创建时间",
+      created: "加入监控时间",
       actions: "操作",
     },
     empty: {

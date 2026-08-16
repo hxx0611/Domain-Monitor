@@ -47,7 +47,7 @@ export const en = {
       domain: "Domain",
       status: "Status",
       expiration: "Expiration",
-      created: "Created",
+      created: "Monitoring added",
       actions: "Actions",
     },
     empty: {

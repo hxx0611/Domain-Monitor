@@ -380,6 +380,18 @@ describe("display helpers", () => {
     expect(errorMessage("http_network", en)).not.toBe("http_network");
     expect(errorMessage("ssl_no_tls_service", zhCN)).not.toBe("ssl_no_tls_service");
   });
+
+  it("domains.created label states the true semantic: monitoring-added time, not registration (V0.7.3.x)", () => {
+    // domain.createdAt is the time the domain was ADDED to monitoring —
+    // it must never be labeled as the registration date.
+    expect(en.domains.col.created).toBe("Monitoring added");
+    expect(zhCN.domains.col.created).toBe("加入监控时间");
+    expect(en.domains.col.created).not.toBe("Created");
+    expect(zhCN.domains.col.created).not.toBe("创建时间");
+    // Registration/expiration stay distinct and honest when RDAP has no data.
+    expect(en.domains.expirationUnavailable).toBe("Expiration unavailable");
+    expect(zhCN.domains.expirationUnavailable).toBe("到期时间不可用");
+  });
 });
 
 // ---------------------------------------------------------------------------
