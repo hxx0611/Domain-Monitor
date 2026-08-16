@@ -67,12 +67,16 @@ export function ChannelsTable({ channels, dict }: { channels: ChannelView[]; dic
                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         channel.type === "email"
                           ? "bg-blue-50 text-blue-700"
-                          : "bg-purple-50 text-purple-700"
+                          : channel.type === "telegram"
+                            ? "bg-green-50 text-green-700"
+                            : "bg-purple-50 text-purple-700"
                       }`}
                     >
                       {channel.type === "email"
                         ? lookup(dict, "notifications.channelEmail")
-                        : lookup(dict, "notifications.channelWebhook")}
+                        : channel.type === "telegram"
+                          ? lookup(dict, "notifications.channelTelegram")
+                          : lookup(dict, "notifications.channelWebhook")}
                     </span>
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-900">{channel.name}</td>

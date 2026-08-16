@@ -181,6 +181,7 @@ export const zhCN = {
     },
     channelEmail: "Email",
     channelWebhook: "Webhook",
+    channelTelegram: "Telegram",
     invalidConfig: "配置无效",
     field: {
       to: "收件人",

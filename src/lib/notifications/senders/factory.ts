@@ -9,13 +9,19 @@
 import type { ChannelType, DeliverySender } from "../types";
 import { EmailSender } from "./email";
 import { WebhookSender } from "./webhook";
+import { TelegramSender } from "./telegram";
+import { getDomainById } from "@/lib/domains";
 
-/** Instantiate the sender for a channel type. Email/webhook only (V0.6+). */
+/** Instantiate the sender for a channel type. Email/webhook (V0.6+) / telegram (V0.7.x). */
 export function createSender(type: ChannelType): DeliverySender {
   switch (type) {
     case "email":
       return new EmailSender();
     case "webhook":
       return new WebhookSender();
+    case "telegram":
+      return new TelegramSender({
+        resolveDomain: (domainId) => getDomainById(domainId)?.hostname,
+      });
   }
 }

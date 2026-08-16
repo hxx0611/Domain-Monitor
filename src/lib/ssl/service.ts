@@ -18,7 +18,7 @@ import { diffSslSnapshots } from "./diff";
 import { classifySslStatus, toSslCertificate } from "./normalize";
 import { createSslSnapshot, getLatestSslSnapshot, type SslDb } from "./repository";
 import { sslChangesToEvents } from "@/lib/notifications/events";
-import { classifySslError, type SslErrorCode } from "@/lib/monitoring/error-classifier";
+import { classifySslError } from "@/lib/monitoring/error-classifier";
 import type { SslCheckResult, SslSnapshot } from "./types";
 
 export interface SslServiceOptions {

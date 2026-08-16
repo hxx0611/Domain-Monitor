@@ -180,6 +180,7 @@ export const en = {
     },
     channelEmail: "Email",
     channelWebhook: "Webhook",
+    channelTelegram: "Telegram",
     invalidConfig: "Invalid config",
     field: {
       to: "To",

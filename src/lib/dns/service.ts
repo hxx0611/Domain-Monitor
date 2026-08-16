@@ -16,7 +16,7 @@ import { diffDnsSnapshots } from "./diff";
 import { sortRecords } from "./normalize";
 import { createDnsSnapshot, getLatestDnsSnapshot, type DnsDb } from "./repository";
 import { dnsChangesToEvents } from "@/lib/notifications/events";
-import { classifyDnsError, type DnsErrorCode } from "@/lib/monitoring/error-classifier";
+import { classifyDnsError } from "@/lib/monitoring/error-classifier";
 import { DNS_RECORD_TYPES, type DnsCheckResult, type DnsRecord } from "./types";
 
 export interface DnsServiceOptions {

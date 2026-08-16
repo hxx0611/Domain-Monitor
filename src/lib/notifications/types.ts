@@ -19,8 +19,8 @@ export type NotificationEventType =
   | "ssl_status_changed"
   | "http_status_changed";
 
-/** Delivery channel kinds supported in V0.6 (email + webhook only). */
-export type ChannelType = "email" | "webhook";
+/** Delivery channel kinds supported (email + webhook since V0.6; telegram since V0.7.x). */
+export type ChannelType = "email" | "webhook" | "telegram";
 
 /** A normalized notification event (pure-function output). */
 export interface NotificationEvent {

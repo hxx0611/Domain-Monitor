@@ -20,7 +20,7 @@ import { fetchHttpStatus, HttpError, type HttpClientOptions } from "./client";
 import { classifyHttpStatus } from "./normalize";
 import { createHttpSnapshot, getLatestHttpSnapshot, type HttpDb } from "./repository";
 import { httpStatusChangeEvent } from "@/lib/notifications/events";
-import { classifyHttpError, type HttpErrorCode } from "@/lib/monitoring/error-classifier";
+import { classifyHttpError } from "@/lib/monitoring/error-classifier";
 import type { HttpCheckResult, HttpSnapshot } from "./types";
 
 export interface HttpServiceOptions {
