@@ -3,6 +3,7 @@ import { domains, httpSnapshots, notificationEvents } from "@/db/schema";
 import { createTestDb } from "../../../test/helpers";
 import { checkHttp } from "./service";
 import { createHttpSnapshot, getHttpHistory, getLatestHttpSnapshot } from "./repository";
+import { HttpError } from "./client";
 import type { RawHttpResult } from "./client";
 
 vi.mock("./client", async (importOriginal) => {
@@ -112,28 +113,41 @@ describe("checkHttp", () => {
     mockedFetch.mockResolvedValue(rawResult());
     await checkHttp(domainId, { db });
 
-    mockedFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+    mockedFetch.mockRejectedValue(new HttpError("HTTP request failed (network error).", "network"));
     const failed = await checkHttp(domainId, { db });
 
-    expect(failed).toEqual({ ok: false, error: "HTTP monitoring unavailable." });
+    expect(failed).toEqual({
+      ok: false,
+      error: "HTTP monitoring unavailable.",
+      errorCode: "http_network",
+    });
 
     const history = getHttpHistory(domainId, 10, db);
     expect(history).toHaveLength(2);
     expect(history[0].status).toBe("error");
-    expect(history[0].error).toBe("HTTP monitoring unavailable.");
+    expect(history[0].error).toBe("http_network");
     expect(history[0].httpStatus).toBeUndefined();
     expect(history[1].status).toBe("ok");
   });
 
   it("writes an error snapshot for SSRF-blocked failures too", async () => {
+    // Real HttpError path: the raw message carries the resolved address.
+    // Only the machine code may reach the snapshot / action result.
     mockedFetch.mockRejectedValue(
-      Object.assign(new Error("Blocked address 10.0.0.1."), { code: "blocked-redirect" }),
+      new HttpError("Blocked address 10.0.0.1 resolved for internal.example.", "blocked-redirect"),
     );
     const result = await checkHttp(domainId, { db });
 
     expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errorCode).toBe("http_blocked_redirect");
+      expect(result.error).not.toContain("10.0.0.1");
+      expect(result.error).not.toContain("internal.example");
+    }
     const latest = getLatestHttpSnapshot(domainId, db);
     expect(latest?.status).toBe("error");
+    expect(latest?.error).toBe("http_blocked_redirect");
+    expect(latest?.error).not.toContain("10.0.0.1");
   });
 
   it("rejects a concurrent check for the same domain", async () => {
@@ -300,7 +314,11 @@ describe("checkHttp event/snapshot atomicity (V0.6)", () => {
     // user-safe failure; the key guarantee is atomicity: the error snapshot
     // was NOT persisted without its event.
     const result = await checkHttp(id, { db });
-    expect(result).toEqual({ ok: false, error: "HTTP monitoring unavailable." });
+    expect(result).toMatchObject({ ok: false, error: "HTTP monitoring unavailable." });
+    if (!result.ok) {
+      // Non-client error (plain Error) collapses to http_unknown.
+      expect(result.errorCode).toBe("http_unknown");
+    }
 
     // Snapshot rolled back: still exactly the one baseline row, and the
     // error snapshot was NOT persisted (no "snapshot saved, event lost").
@@ -322,7 +340,11 @@ describe("checkHttp event/snapshot atomicity (V0.6)", () => {
     mockedFetch.mockRejectedValue(new Error("timeout"));
     const result = await checkHttp(id, { db });
 
-    expect(result).toEqual({ ok: false, error: "HTTP monitoring unavailable." });
+    expect(result).toEqual({
+      ok: false,
+      error: "HTTP monitoring unavailable.",
+      errorCode: "http_unknown",
+    });
     const snapshots = db.select().from(httpSnapshots).all();
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0].status).toBe("error");

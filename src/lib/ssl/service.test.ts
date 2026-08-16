@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { domains, sslCertificates, sslSnapshots, notificationEvents } from "@/db/schema";
 import { createTestDb } from "../../../test/helpers";
 import { checkSsl } from "./service";
+import { SslError } from "./client";
 import type { RawSslResult } from "./client";
 import type { RawCertificateLike } from "./normalize";
 import { getLatestSslSnapshot, getSslHistory, createSslSnapshot } from "./repository";
@@ -170,15 +171,20 @@ describe("checkSsl", () => {
     mockedFetch.mockResolvedValue(rawResult());
     await checkSsl(domainId, { db });
 
-    mockedFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+    mockedFetch.mockRejectedValue(new SslError("No TLS service on port 443.", "no-tls-service"));
     const failed = await checkSsl(domainId, { db });
 
-    expect(failed).toEqual({ ok: false, error: "SSL monitoring unavailable." });
+    expect(failed).toEqual({
+      ok: false,
+      error: "SSL monitoring unavailable.",
+      errorCode: "ssl_no_tls_service",
+    });
 
     // History now has [error snapshot, previous success] — certificate intact.
     const history = getSslHistory(domainId, 10, db);
     expect(history).toHaveLength(2);
     expect(history[0].status).toBe("error");
+    expect(history[0].error).toBe("ssl_no_tls_service");
     expect(history[0].certificate).toBeUndefined();
     expect(history[1].status).toBe("ok");
     expect(history[1].certificate?.fingerprint256).toBe("AA:BB:CC:DD");

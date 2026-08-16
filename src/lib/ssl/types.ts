@@ -8,6 +8,8 @@
  * ever sees these types.
  */
 
+import type { SslErrorCode } from "@/lib/monitoring/error-classifier";
+
 /**
  * Normalized outcome of an SSL check. `ok` means a certificate was
  * obtained and parsed; the finer-grained `validity` describes its state.
@@ -42,7 +44,7 @@ export interface SslSnapshot {
   /** Cipher name, e.g. "TLS_AES_256_GCM_SHA384" (undefined on error). */
   cipherName?: string;
   status: SslStatus;
-  /** User-safe message when status is "error". */
+  /** Machine error code when status is "error" (never a raw message). */
   error?: string;
   /** The leaf certificate (present when status is not "error"). */
   certificate?: SslCertificate;
@@ -66,4 +68,4 @@ export type SslCheckResult =
       /** Empty on the first check (no previous snapshot to diff against). */
       changes: SslChange[];
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; errorCode?: SslErrorCode };

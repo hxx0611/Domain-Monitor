@@ -20,6 +20,7 @@ import { fetchHttpStatus, HttpError, type HttpClientOptions } from "./client";
 import { classifyHttpStatus } from "./normalize";
 import { createHttpSnapshot, getLatestHttpSnapshot, type HttpDb } from "./repository";
 import { httpStatusChangeEvent } from "@/lib/notifications/events";
+import { classifyHttpError, type HttpErrorCode } from "@/lib/monitoring/error-classifier";
 import type { HttpCheckResult, HttpSnapshot } from "./types";
 
 export interface HttpServiceOptions {
@@ -68,8 +69,11 @@ export async function checkHttp(
     } catch (error) {
       // Transport/DNS/timeout/SSRF-blocked → record an error snapshot;
       // never touch prior data. The status transition to "error" is still
-      // an event-worthy change (e.g. ok → error).
+      // an event-worthy change (e.g. ok → error). The snapshot stores the
+      // machine error code only — the raw HttpError message may contain a
+      // resolved address (blocked-redirect) and must never leave the log.
       console.error(`[http] check failed for domain ${domainId} (${domain.hostname}):`, error);
+      const errorCode = classifyHttpError(error);
       const errorSnapshot: HttpSnapshot = {
         id: 0,
         domainId,
@@ -77,7 +81,7 @@ export async function checkHttp(
         status: "error",
         redirected: false,
         redirectCount: 0,
-        error: "HTTP monitoring unavailable.",
+        error: errorCode,
       };
       const errorEvent = httpStatusChangeEvent(
         domainId,
@@ -92,7 +96,7 @@ export async function checkHttp(
             status: "error",
             redirected: false,
             redirectCount: 0,
-            error: "HTTP monitoring unavailable.",
+            error: errorCode,
           },
           options.db,
           errorEvent ? [errorEvent] : [],
@@ -100,7 +104,7 @@ export async function checkHttp(
       } catch (dbError) {
         console.error(`[http] failed to persist error snapshot for domain ${domainId}:`, dbError);
       }
-      return { ok: false, error: "HTTP monitoring unavailable." };
+      return { ok: false, error: "HTTP monitoring unavailable.", errorCode };
     }
 
     const status = classifyHttpStatus(raw.status);

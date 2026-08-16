@@ -104,12 +104,20 @@ describe("fetchSslCertificate", () => {
     await expect(promise).rejects.toMatchObject({ name: "SslError", code: "no-tls-service" });
   });
 
-  it("classifies ENOTFOUND as network", async () => {
+  it("classifies ENOTFOUND as dns-failed", async () => {
     const socket = new FakeSocket({ certificate: VALID_CERT });
     const promise = fetchSslCertificate("example.com", { connect: fakeConnect(socket) });
     socket.socketError("ENOTFOUND");
 
-    await expect(promise).rejects.toMatchObject({ name: "SslError", code: "network" });
+    await expect(promise).rejects.toMatchObject({ name: "SslError", code: "dns-failed" });
+  });
+
+  it("classifies EAI_AGAIN as dns-failed", async () => {
+    const socket = new FakeSocket({ certificate: VALID_CERT });
+    const promise = fetchSslCertificate("example.com", { connect: fakeConnect(socket) });
+    socket.socketError("EAI_AGAIN");
+
+    await expect(promise).rejects.toMatchObject({ name: "SslError", code: "dns-failed" });
   });
 
   it("classifies ECONNRESET as network", async () => {

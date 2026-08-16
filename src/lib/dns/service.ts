@@ -16,6 +16,7 @@ import { diffDnsSnapshots } from "./diff";
 import { sortRecords } from "./normalize";
 import { createDnsSnapshot, getLatestDnsSnapshot, type DnsDb } from "./repository";
 import { dnsChangesToEvents } from "@/lib/notifications/events";
+import { classifyDnsError, type DnsErrorCode } from "@/lib/monitoring/error-classifier";
 import { DNS_RECORD_TYPES, type DnsCheckResult, type DnsRecord } from "./types";
 
 export interface DnsServiceOptions {
@@ -63,7 +64,11 @@ export async function checkDns(
       );
     } catch (error) {
       console.error(`[dns] check failed for domain ${domainId} (${domain.hostname}):`, error);
-      return { ok: false, error: "DNS monitoring unavailable." };
+      return {
+        ok: false,
+        error: "DNS monitoring unavailable.",
+        errorCode: classifyDnsError(error),
+      };
     }
 
     const records = sortRecords(grouped.flat());

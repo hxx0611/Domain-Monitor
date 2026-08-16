@@ -16,7 +16,8 @@
 import tls from "node:tls";
 import type { RawCertificateLike } from "./normalize";
 
-export type SslErrorCode = "timeout" | "network" | "handshake" | "no-tls-service" | "invalid-cert";
+export type SslErrorCode =
+  "timeout" | "network" | "handshake" | "no-tls-service" | "invalid-cert" | "dns-failed";
 
 export class SslError extends Error {
   readonly code: SslErrorCode;
@@ -122,10 +123,14 @@ function mapSocketError(error: NodeJS.ErrnoException): SslError {
   if (error.code === "ECONNREFUSED") {
     return new SslError("No TLS service on port 443.", "no-tls-service");
   }
+  // Name resolution failures get their own classification so the UI can
+  // distinguish "the domain does not resolve" from a general connection
+  // failure (V0.7.3).
+  if (error.code === "ENOTFOUND" || error.code === "EAI_AGAIN") {
+    return new SslError("Could not resolve the domain.", "dns-failed");
+  }
   if (
     error.code === "ECONNRESET" ||
-    error.code === "ENOTFOUND" ||
-    error.code === "EAI_AGAIN" ||
     error.code === "EHOSTUNREACH" ||
     error.code === "ENETUNREACH"
   ) {

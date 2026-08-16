@@ -18,6 +18,7 @@ import { diffSslSnapshots } from "./diff";
 import { classifySslStatus, toSslCertificate } from "./normalize";
 import { createSslSnapshot, getLatestSslSnapshot, type SslDb } from "./repository";
 import { sslChangesToEvents } from "@/lib/notifications/events";
+import { classifySslError, type SslErrorCode } from "@/lib/monitoring/error-classifier";
 import type { SslCheckResult, SslSnapshot } from "./types";
 
 export interface SslServiceOptions {
@@ -63,16 +64,16 @@ export async function checkSsl(
       raw = await fetchSslCertificate(domain.hostname, options.clientOptions);
     } catch (error) {
       // Record the failure as an error snapshot; never touch prior data.
+      // The snapshot stores the machine error code — the raw error message
+      // (which may contain resolved addresses) stays in the server log.
       console.error(`[ssl] check failed for domain ${domainId} (${domain.hostname}):`, error);
+      const errorCode = classifySslError(error);
       try {
-        createSslSnapshot(
-          { domainId, status: "error", error: "SSL monitoring unavailable." },
-          options.db,
-        );
+        createSslSnapshot({ domainId, status: "error", error: errorCode }, options.db);
       } catch (dbError) {
         console.error(`[ssl] failed to persist error snapshot for domain ${domainId}:`, dbError);
       }
-      return { ok: false, error: "SSL monitoring unavailable." };
+      return { ok: false, error: "SSL monitoring unavailable.", errorCode };
     }
 
     const certificate = toSslCertificate(raw.certificate, domain.hostname);

@@ -2,12 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { checkHttp } from "./service";
+import type { HttpErrorCode } from "@/lib/monitoring/error-classifier";
 
 export type HttpActionResult =
   | { ok: true; snapshotId: number; checkedAt: Date }
   | {
       ok: false;
       error: string;
+      errorCode?: HttpErrorCode;
     };
 
 /**
@@ -22,7 +24,7 @@ export async function checkHttpAction(domainId: number): Promise<HttpActionResul
   const result = await checkHttp(domainId);
 
   if (!result.ok) {
-    return { ok: false, error: result.error };
+    return { ok: false, error: result.error, errorCode: result.errorCode };
   }
 
   revalidatePath(`/domains/${domainId}`);

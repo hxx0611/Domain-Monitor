@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { domains, dnsRecords, dnsSnapshots, notificationEvents } from "@/db/schema";
 import { createTestDb } from "../../../test/helpers";
-import { queryDnsRecords } from "./client";
+import { DnsError, queryDnsRecords } from "./client";
 import { checkDns } from "./service";
 import type { DnsRecord, DnsRecordType } from "./types";
 
@@ -102,7 +102,7 @@ describe("checkDns", () => {
 
     mockedQuery.mockImplementation(async (_hostname, type) => {
       if (type === "TXT") {
-        throw new Error("TXT query timed out");
+        throw new DnsError("DoH request timed out.", "timeout");
       }
       return [];
     });
@@ -111,6 +111,7 @@ describe("checkDns", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe("DNS monitoring unavailable.");
+    expect(result.errorCode).toBe("dns_timeout");
 
     // No new snapshot was written; the previous one is preserved.
     const snapshots = db.select().from(dnsSnapshots).all();
@@ -120,10 +121,13 @@ describe("checkDns", () => {
   });
 
   it("fails without writing anything on a network error", async () => {
-    mockedQuery.mockRejectedValue(new Error("ECONNREFUSED"));
+    mockedQuery.mockRejectedValue(new DnsError("DoH request failed (network error).", "network"));
     const result = await checkDns(domainId, { db });
 
     expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errorCode).toBe("dns_network");
+    }
     expect(db.select().from(dnsSnapshots).all()).toHaveLength(0);
   });
 

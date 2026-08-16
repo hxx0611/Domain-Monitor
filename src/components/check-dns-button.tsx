@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { checkDnsAction } from "@/lib/dns/actions";
+import { errorMessage } from "@/lib/i18n/display";
+import type { Dictionary } from "@/lib/i18n/en";
 
 export interface CheckButtonLabels {
   check: string;
@@ -14,17 +16,23 @@ export interface CheckButtonLabels {
  * route so the server re-renders the DNS sections with the new snapshot.
  * The button is disabled while a check is running (client-side guard on
  * top of the service's in-flight guard).
+ *
+ * Errors render through the locale-aware error code mapping; the raw
+ * action message is only a fallback for unknown codes (never raw errors
+ * from the transport layer).
  */
 export function CheckDnsButton({
   domainId,
   labels,
+  dict,
 }: {
   domainId: number;
   labels: CheckButtonLabels;
+  dict: Dictionary;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; code?: string } | null>(null);
 
   function handleCheck() {
     setError(null);
@@ -33,7 +41,7 @@ export function CheckDnsButton({
       const result = await checkDnsAction(domainId);
 
       if (!result.ok) {
-        setError(result.error);
+        setError({ message: result.error, code: result.errorCode });
         return;
       }
 
@@ -45,7 +53,7 @@ export function CheckDnsButton({
     <div className="flex flex-col items-end gap-1.5">
       {error ? (
         <p role="alert" className="text-xs text-red-600">
-          {error}
+          {error.code ? (errorMessage(error.code, dict) ?? error.message) : error.message}
         </p>
       ) : null}
       <button

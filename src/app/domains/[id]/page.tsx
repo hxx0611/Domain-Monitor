@@ -4,7 +4,7 @@ import { getDomainById } from "@/lib/domains";
 import { formatDate } from "@/lib/format";
 import { getDictionary, getLocale } from "@/lib/i18n";
 import { interpolate } from "@/lib/i18n/config";
-import { lookup } from "@/lib/i18n/display";
+import { errorMessage, lookup } from "@/lib/i18n/display";
 import type { Dictionary } from "@/lib/i18n/en";
 import { RefreshRdapButton } from "@/components/refresh-rdap-button";
 import { CheckDnsButton } from "@/components/check-dns-button";
@@ -268,6 +268,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
           </h2>
           <CheckDnsButton
             domainId={domain.id}
+            dict={dict}
             labels={{
               check: lookup(dict, "actions.checkDns"),
               checking: lookup(dict, "actions.checking"),
@@ -381,6 +382,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
           </h2>
           <CheckSslButton
             domainId={domain.id}
+            dict={dict}
             labels={{
               check: lookup(dict, "actions.checkSsl"),
               checking: lookup(dict, "actions.checking"),
@@ -441,7 +443,9 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
             </dl>
           </>
         ) : latestSsl && latestSsl.status === "error" ? (
-          <p className="px-4 py-6 text-sm text-gray-500">{lookup(dict, "ssl.unavailable")}</p>
+          <p className="px-4 py-6 text-sm text-gray-500">
+            {errorMessage(latestSsl.error ?? "", dict) ?? lookup(dict, "ssl.unavailable")}
+          </p>
         ) : null}
 
         <div className="px-4 py-4">
@@ -474,7 +478,8 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
                       {previous === undefined
                         ? lookup(dict, "history.firstCheck")
                         : snapshot.status === "error"
-                          ? lookup(dict, "ssl.unavailable")
+                          ? (errorMessage(snapshot.error ?? "", dict) ??
+                            lookup(dict, "ssl.unavailable"))
                           : replaced
                             ? lookup(dict, "ssl.certReplaced")
                             : lookup(dict, "history.noChanges")}
@@ -496,6 +501,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
           </h2>
           <CheckHttpButton
             domainId={domain.id}
+            dict={dict}
             labels={{
               check: lookup(dict, "actions.checkHttp"),
               checking: lookup(dict, "actions.checking"),
@@ -554,7 +560,9 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
             </div>
           </dl>
         ) : latestHttp && latestHttp.status === "error" ? (
-          <p className="px-4 py-6 text-sm text-gray-500">{lookup(dict, "http.unavailable")}</p>
+          <p className="px-4 py-6 text-sm text-gray-500">
+            {errorMessage(latestHttp.error ?? "", dict) ?? lookup(dict, "http.unavailable")}
+          </p>
         ) : null}
 
         <div className="px-4 py-4">
@@ -584,7 +592,8 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
                       {previous === undefined
                         ? lookup(dict, "history.firstCheck")
                         : snapshot.status === "error"
-                          ? lookup(dict, "http.unavailable")
+                          ? (errorMessage(snapshot.error ?? "", dict) ??
+                            lookup(dict, "http.unavailable"))
                           : statusChanged
                             ? interpolate(lookup(dict, "http.statusChanged"), {
                                 status: snapshot.status,

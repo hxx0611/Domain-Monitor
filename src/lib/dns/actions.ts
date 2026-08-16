@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { checkDns } from "./service";
 import type { DnsChange } from "./types";
+import type { DnsErrorCode } from "@/lib/monitoring/error-classifier";
 
 export type DnsActionResult =
   | { ok: true; snapshotId: number; checkedAt: Date; changes: DnsChange[] }
-  | { ok: false; error: string };
+  | { ok: false; error: string; errorCode?: DnsErrorCode };
 
 /**
  * Run a manual DNS check for a stored domain.
@@ -20,7 +21,7 @@ export async function checkDnsAction(domainId: number): Promise<DnsActionResult>
   const result = await checkDns(domainId);
 
   if (!result.ok) {
-    return { ok: false, error: result.error };
+    return { ok: false, error: result.error, errorCode: result.errorCode };
   }
 
   revalidatePath(`/domains/${domainId}`);

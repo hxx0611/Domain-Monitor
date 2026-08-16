@@ -10,6 +10,8 @@
  * internal failures (error).
  */
 
+import type { HttpErrorCode } from "@/lib/monitoring/error-classifier";
+
 /**
  * Normalized outcome of an HTTP check:
  * - `ok`            — 2xx response received
@@ -36,7 +38,7 @@ export interface HttpSnapshot {
   redirectCount: number;
   /** Final URL after redirects. */
   finalUrl?: string;
-  /** User-safe message when status is "error". */
+  /** Machine error code when status is "error" (never a raw message). */
   error?: string;
 }
 
@@ -48,4 +50,5 @@ export interface HttpSnapshot {
  * any later one.
  */
 export type HttpCheckResult =
-  { ok: true; snapshotId: number; checkedAt: Date } | { ok: false; error: string };
+  | { ok: true; snapshotId: number; checkedAt: Date }
+  | { ok: false; error: string; errorCode?: HttpErrorCode };

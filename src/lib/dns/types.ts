@@ -7,6 +7,8 @@
  * only ever sees these types.
  */
 
+import type { DnsErrorCode } from "@/lib/monitoring/error-classifier";
+
 /** Record types monitored in V0.3. Order doubles as display order. */
 export const DNS_RECORD_TYPES = ["A", "AAAA", "CNAME", "MX", "NS", "TXT", "CAA"] as const;
 
@@ -53,4 +55,4 @@ export type DnsCheckResult =
       /** Empty on the first check (no previous snapshot to diff against). */
       changes: DnsChange[];
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; errorCode?: DnsErrorCode };

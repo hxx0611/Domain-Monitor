@@ -106,6 +106,29 @@ export const en = {
     historyTitle: "HTTP History",
     unavailable: "HTTP monitoring unavailable.",
   },
+  errors: {
+    dns: {
+      timeout: "DNS check timed out.",
+      network: "Could not reach the DNS service.",
+      invalidResponse: "The DNS service returned an invalid response.",
+      resolverError: "The DNS resolver reported an error.",
+    },
+    ssl: {
+      timeout: "SSL check timed out.",
+      network: "Could not connect to the server.",
+      dnsFailed: "Could not resolve the domain.",
+      handshake: "The TLS handshake failed.",
+      noTlsService: "No TLS service is running on port 443.",
+      invalidCert: "The server presented an invalid certificate.",
+    },
+    http: {
+      dnsFailed: "Could not resolve the domain.",
+      timeout: "The request timed out.",
+      network: "Could not connect to the server.",
+      blockedRedirect: "A redirect was blocked by safety checks.",
+      tooManyRedirects: "Too many redirects.",
+    },
+  },
   status: {
     active: "Active",
     enabled: "Enabled",

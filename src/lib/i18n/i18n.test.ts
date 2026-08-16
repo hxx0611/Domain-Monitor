@@ -13,7 +13,7 @@ import { COOKIE_NAME, DEFAULT_LOCALE, interpolate, isLocale } from "./config";
 import { en, type Dictionary } from "./en";
 import { zhCN } from "./zh-CN";
 import { getDictionary, getLocale, t } from "./index";
-import { eventTypeLabel, lookup } from "./display";
+import { errorMessage, eventTypeLabel, lookup } from "./display";
 import { formatDate } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
@@ -349,6 +349,36 @@ describe("display helpers", () => {
     expect(eventTypeLabel("dns_record_added", zhCN)).not.toBe("dns_record_added");
     // Unknown types pass through unchanged (crash-free).
     expect(eventTypeLabel("unknown_type", en)).toBe("unknown_type");
+  });
+
+  it("errorMessage maps monitoring error codes to localized labels", () => {
+    expect(errorMessage("dns_timeout", en)).toBe("DNS check timed out.");
+    expect(errorMessage("dns_timeout", zhCN)).toBe("DNS 检查超时。");
+    expect(errorMessage("ssl_network", en)).toBe("Could not connect to the server.");
+    expect(errorMessage("ssl_dns_failed", zhCN)).toBe("无法解析该域名。");
+    expect(errorMessage("http_blocked_redirect", en)).toBe(
+      "A redirect was blocked by safety checks.",
+    );
+    expect(errorMessage("http_blocked_redirect", zhCN)).toBe("重定向被安全检查拦截。");
+    expect(errorMessage("http_too_many_redirects", en)).toBe("Too many redirects.");
+  });
+
+  it("errorMessage returns undefined for legacy / unknown values (safe fallback)", () => {
+    // Legacy v0.7.2 snapshot error values are plain sentences, not codes —
+    // they must yield undefined so callers fall back to the generic
+    // per-module unavailable text instead of crashing or leaking.
+    expect(errorMessage("DNS monitoring unavailable.", en)).toBeUndefined();
+    expect(errorMessage("SSL monitoring unavailable.", zhCN)).toBeUndefined();
+    expect(errorMessage("HTTP monitoring unavailable.", en)).toBeUndefined();
+    expect(errorMessage("ssl_unknown", en)).toBeUndefined();
+    expect(errorMessage("", en)).toBeUndefined();
+    expect(errorMessage("dns_nonexistent_code", en)).toBeUndefined();
+  });
+
+  it("errorMessage codes are machine values — never translated text", () => {
+    // The code itself must never surface as the displayed label.
+    expect(errorMessage("http_network", en)).not.toBe("http_network");
+    expect(errorMessage("ssl_no_tls_service", zhCN)).not.toBe("ssl_no_tls_service");
   });
 });
 

@@ -107,6 +107,29 @@ export const zhCN = {
     historyTitle: "HTTP 历史",
     unavailable: "HTTP 监控不可用。",
   },
+  errors: {
+    dns: {
+      timeout: "DNS 检查超时。",
+      network: "无法连接 DNS 解析服务。",
+      invalidResponse: "DNS 服务返回了无效响应。",
+      resolverError: "DNS 解析服务返回错误。",
+    },
+    ssl: {
+      timeout: "SSL 检查超时。",
+      network: "无法连接服务器。",
+      dnsFailed: "无法解析该域名。",
+      handshake: "TLS 握手失败。",
+      noTlsService: "端口 443 上没有 TLS 服务。",
+      invalidCert: "服务器返回了无效的证书。",
+    },
+    http: {
+      dnsFailed: "无法解析该域名。",
+      timeout: "请求超时。",
+      network: "无法连接服务器。",
+      blockedRedirect: "重定向被安全检查拦截。",
+      tooManyRedirects: "重定向次数过多。",
+    },
+  },
   status: {
     active: "正常",
     enabled: "已启用",
