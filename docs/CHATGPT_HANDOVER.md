@@ -1,0 +1,112 @@
+# Domain-Monitor — ChatGPT Handover
+
+> Top-level AI handover. Read this first, then the referenced docs. Written 2026-08-16 from the OpenClaw workspace where the project was built, deployed, and tested end-to-end.
+
+## 1. What you are taking over
+
+**Domain-Monitor** — a self-hosted domain lifecycle monitoring platform (RDAP / DNS / SSL / HTTP monitoring, snapshot history, bilingual UI, notification pipeline with webhook/email delivery, error classification). Built through 8 released versions (v0.4.0 → v0.7.3), fully tested (501 tests), and **deployed to production** behind Cloudflare Tunnel on a container (supervisor-managed).
+
+## 2. Code baseline
+
+- Repository: `https://github.com/hxx0611/Domain-Monitor`
+- main HEAD: `fe4b70450c9c9e701eca982ab93a5b1798837a16`
+- Release: **v0.7.3 — Monitoring Error Clarity** (tag v0.7.3 → same commit)
+- Stack: Next.js 15.5.23 (App Router/Server Actions/RSC) · React 19 · Drizzle ORM 0.44.7 · better-sqlite3 13.0.3 · Node ≥22 · pnpm 11.2.2
+- Docs: `docs/PROJECT_HANDOVER.md` (project), `docs/ARCHITECTURE_DECISIONS.md` (why), `docs/DATABASE.md`, `docs/MONITORING.md`, `docs/NOTIFICATIONS.md`, `docs/TESTING.md`
+
+## 3. Production architecture (verified 2026-08-16)
+
+```
+Internet → Cloudflare (https://domain-monitor.snooze.eu.cc)
+        → Tunnel `domain-monitor` (f24997a3-3ec4-4248-984f-d02ef6129477)
+        → 127.0.0.1:3000 → next-server (supervisor: domain-monitor, NODE_ENV=production)
+        → /workspace/domain-monitor-data/domain-monitor.db (mode 600)
+supervisor also runs: cloudflared tunnel run domain-monitor
+```
+
+- Host: Debian 12 container, **no systemd** — supervisor 4.2.5 (`/etc/supervisor/conf.d/domain-monitor.conf`)
+- Node v24.16.0, cloudflared 2026.8.2, cron for daily backups
+- Details: `docs/DEPLOYMENT_HANDOVER.md`, `docs/OPERATIONS.md`
+
+## 4. Cloudflare architecture
+
+- Zone `snooze.eu.cc`; one DNS record added: CNAME `domain-monitor.snooze.eu.cc` → tunnel
+- Tunnel `domain-monitor` (dedicated, created 2026-08-16); **`time machine` tunnel (e71ffcb1-…) is off-limits — never modify it**
+- R2 bucket `domain-monitor-backups` (off-site backups, rclone remote `r2`)
+
+## 5. Database
+
+- Production: `/workspace/domain-monitor-data/domain-monitor.db` — 10 tables, 6 migrations, FK on, busy_timeout 5000
+- Contains 2 verification domains (opusai.eu.cc, apitoken.indevs.in); no notification channels/rules
+- Never treat any `/tmp` DB or the repo `data/` DB as production
+- Details: `docs/DATABASE.md`
+
+## 6. Backups
+
+- Local: `/workspace/domain-monitor-backups/` keep 14 — script `/usr/local/bin/domain-monitor-backup`, cron 03:30
+- Off-site: R2 `daily/` keep 30 — **implemented & verified 2026-08-16** (upload + download-back + integrity + data check all PASS)
+- Recovery: `docs/DISASTER_RECOVERY.md`
+
+## 7. Test status
+
+- **501 passed** (34 files) + worker CLI 7 + concurrency 15 + scripts smoke 40 + UI smoke 109 + interactive i18n smoke 22
+- CI: Ubuntu Node 22/24/26 + Windows Node 24 fresh-install guard
+- Full commands: `docs/TESTING.md`
+
+## 8. Known risks
+
+- **P0**: container rebuild does not auto-start services (platform limitation) — long-term production should move to a persistent host; the Tunnel setup is portable
+- **P1**: R2 single copy (no versioning); same-volume local backups
+- **P2**: backup-failure alerting not implemented; `DNS_DOH_ENDPOINT` missing from `.env.example`
+- `cloudflare.token` in `.credentials` is an empty-policy token (unusable); working GitHub token is the `gh-token.txt/` directory name (`.credentials/github.token` is 403)
+
+## 9. Architecture that must NOT be casually changed
+
+- i18n architecture: cookie `domain-monitor-locale` + Server Action + router.refresh(); no middleware/URL prefixes/next-intl
+- Error classification boundary: machine codes only in UI/DB/actions; raw errors only in server logs; `blocked_redirect` never exposes IPs
+- Notification semantics: at-least-once, **no automatic retry**, CAS claims, stale recovery, secretRef/apiKeyRef pattern
+- Snapshot atomicity: DNS failure writes nothing; SSL/HTTP failure writes error snapshot
+- SSRF guards in `http/client.ts` and webhook sender — never weaken
+- better-sqlite3 v13 + `allowBuilds: false` in `pnpm-workspace.yaml` — do not regress the Windows-install fix
+- `127.0.0.1:3000` binding; supervisor config; Tunnel/DNS for `domain-monitor`
+
+## 10. Unfinished items
+
+- Decide fate of the 2 test domains in the production DB (user decision)
+- R2 Object Versioning (recommended, dashboard action)
+- Backup failure alerting
+- Container-rebuild auto-start (needs platform support or host migration)
+- `.env.example` should document `DNS_DOH_ENDPOINT` (doc-only change, needs approval)
+
+## 11. Suggested next steps
+
+1. Run the full test suite + CI check (see TESTING.md) to establish a fresh baseline
+2. Decide test-domain fate with the human; enable R2 versioning
+3. If longer-term production is wanted, plan migration to a persistent VPS/host reusing the same Tunnel (cloudflared credentials must be copied by the human)
+
+## 12. Common troubleshooting path
+
+- Site down but local 200 → `cloudflared tunnel info domain-monitor`, tunnel logs
+- Local down → `supervisorctl status`, `/var/log/domain-monitor-error.log`
+- Domain shows a monitoring error → read `[dns]/[ssl]/[http] check failed` line in the error log, map code via `docs/MONITORING.md`
+- `ssl_dns_failed` / `http_dns_failed` → the domain doesn't resolve publicly (check with dig/DoH) — not an app bug
+- Backup issues → `/var/log/domain-monitor-backup-error.log`
+
+---
+
+## AI CONTINUATION RULES
+
+1. **Do not guess production state.** Verify with commands (git, supervisorctl, ss, sqlite3) before claiming anything about the running system.
+2. **Do not assume Cloudflare configuration.** Confirm with `cloudflared tunnel list/info` and never invent DNS/Tunnel facts.
+3. **Never modify the `time machine` Tunnel** (`e71ffcb1-5756-44eb-a060-31e053bfbae3`) — no stop/delete/route/config changes, ever.
+4. **Do not change the production DB schema or migrations** without explicit approval. Migration files 0000–0005 are frozen.
+5. **Do not change notification semantics** (at-least-once, no auto-retry, CAS, stale recovery, dedup, sender secret handling) without explicit approval.
+6. **Never leak secrets**: no tokens, keys, passwords, credentials in docs, terminal output, reports, or commits. Credentials map only as CONFIGURED/NOT CONFIGURED + file path.
+7. **Audit before modifying.** For any feature work: read the affected modules + docs, produce a READ-ONLY audit, STOP, wait for approval.
+8. **Production operations start READ ONLY.** Any change to running services/DB/Tunnel/DNS/backups requires explicit human approval first.
+9. **Follow the Phase / STOP / GO protocol.** Every version and every deployment phase ends with STOP and a report; never skip gates.
+10. **Git commits/tags/releases require human approval.** No commit, push, tag, or GitHub Release without explicit instruction.
+11. **Never treat the test DB as production** (`/tmp/dm-e2e.db`, repo `data/`, any temp DB). Production is `/workspace/domain-monitor-data/domain-monitor.db`.
+12. **Never treat the Cloudflare Tunnel as the application** — the app is next-server on 127.0.0.1:3000; the tunnel is transport.
+13. **Never treat GitHub status as production status** — code green ≠ deployed green. Verify the running instance.
+14. When in doubt: **STOP and ask** the human.
