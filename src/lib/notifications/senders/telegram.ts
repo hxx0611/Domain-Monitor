@@ -58,6 +58,14 @@ const EVENT_LABELS: Record<string, string> = {
   http_status_changed: "HTTP status changed",
 };
 
+/** Telegram chat id: private chats are a positive integer; groups /
+ * supergroups / channels are negative (often -100...). Loose-but-strict
+ * digit format check used by the actions layer before persisting config.
+ */
+export function isValidTelegramChatId(chatId: string): boolean {
+  return /^-?\d{4,}$/.test(chatId);
+}
+
 /** Parse the channel config JSON. Throws TelegramError("invalid-config"). */
 export function parseTelegramConfig(config: string): TelegramChannelConfig {
   let parsed: unknown;

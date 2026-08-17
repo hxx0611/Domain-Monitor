@@ -2,6 +2,8 @@ import type { ChannelView } from "@/lib/notifications/actions";
 import type { Dictionary } from "@/lib/i18n/en";
 import { lookup } from "@/lib/i18n/display";
 import { EnabledBadge } from "./badges";
+import { AddChannelButton, ChannelToggleButton, EditChannelButton } from "./channel-form";
+import { DeleteButton } from "./delete-button";
 
 /**
  * Map the (English) config field labels produced by the actions layer to
@@ -15,6 +17,7 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   "API key ref": "notifications.field.apiKeyRef",
   URL: "notifications.field.url",
   "Secret ref": "notifications.field.secretRef",
+  "Chat ID": "notifications.field.chatId",
 };
 
 /**
@@ -27,9 +30,12 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
 export function ChannelsTable({ channels, dict }: { channels: ChannelView[]; dict: Dictionary }) {
   return (
     <section className="mb-10">
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
-        {lookup(dict, "notifications.channelsTitle")}
-      </h2>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+          {lookup(dict, "notifications.channelsTitle")}
+        </h2>
+        <AddChannelButton dict={dict} />
+      </div>
 
       {channels.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center">
@@ -39,6 +45,9 @@ export function ChannelsTable({ channels, dict }: { channels: ChannelView[]; dic
           <p className="mt-1 text-sm text-gray-500">
             {lookup(dict, "notifications.channelsEmpty.hint")}
           </p>
+          <div className="mt-4 flex justify-center">
+            <AddChannelButton dict={dict} />
+          </div>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-200">
@@ -56,6 +65,9 @@ export function ChannelsTable({ channels, dict }: { channels: ChannelView[]; dic
                 </th>
                 <th scope="col" className="px-4 py-3 font-medium">
                   {lookup(dict, "notifications.channelsCol.status")}
+                </th>
+                <th scope="col" className="px-4 py-3 font-medium">
+                  {lookup(dict, "notifications.channelsCol.actions")}
                 </th>
               </tr>
             </thead>
@@ -107,6 +119,13 @@ export function ChannelsTable({ channels, dict }: { channels: ChannelView[]; dic
                   </td>
                   <td className="px-4 py-3">
                     <EnabledBadge enabled={channel.enabled} dict={dict} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <EditChannelButton channel={channel} dict={dict} />
+                      <ChannelToggleButton channel={channel} dict={dict} />
+                      <DeleteButton dict={dict} kind="channel" id={channel.id} />
+                    </div>
                   </td>
                 </tr>
               ))}

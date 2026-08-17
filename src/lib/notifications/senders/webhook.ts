@@ -246,6 +246,8 @@ async function defaultLookup(hostname: string): Promise<string[]> {
   return addresses.map((entry) => entry.address);
 }
 
+export { defaultLookup };
+
 /**
  * Map a fetch-level failure (network / timeout / DNS / pre-thrown HttpError)
  * to a typed HttpError. Shared by WebhookSender and EmailSender.

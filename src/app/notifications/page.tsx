@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getDomains } from "@/lib/domains";
 import { getNotificationsOverviewAction } from "@/lib/notifications/actions";
 import { getDictionary, getLocale } from "@/lib/i18n";
 import { lookup } from "@/lib/i18n/display";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function NotificationsPage() {
   const result = await getNotificationsOverviewAction();
+  const domains = getDomains().map((domain) => ({ id: domain.id, label: domain.hostname }));
   const locale = await getLocale();
   const dict = getDictionary(locale);
 
@@ -31,7 +33,12 @@ export default async function NotificationsPage() {
       {result.ok ? (
         <>
           <ChannelsTable channels={result.channels} dict={dict} />
-          <RulesTable rules={result.rules} dict={dict} />
+          <RulesTable
+            rules={result.rules}
+            channels={result.channels}
+            domains={domains}
+            dict={dict}
+          />
           <DeliveriesTable deliveries={result.deliveries} dict={dict} locale={locale} />
         </>
       ) : (

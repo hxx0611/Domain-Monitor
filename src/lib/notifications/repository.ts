@@ -392,3 +392,125 @@ export function getDeliveriesWithDetails(target: NotificationDb = db): DeliveryW
     .orderBy(desc(notificationDeliveries.id))
     .all();
 }
+
+// ---------------------------------------------------------------------------
+// Channel & rule CRUD (Phase 8B)
+// ---------------------------------------------------------------------------
+//
+// Write paths for the configuration UI. Validation lives in the server
+// action layer (actions.ts) — these functions are thin, typed Drizzle
+// writes. They return simple booleans/ids for the action layer and let
+// database errors (FK violations etc.) propagate — never swallowed here.
+
+/** Create a channel (config is a JSON string, already validated by the action). */
+export function createChannel(
+  type: string,
+  name: string,
+  config: string,
+  target: NotificationDb = db,
+): number {
+  const row = target
+    .insert(notificationChannels)
+    .values({ type, name, config, enabled: 1 })
+    .returning({ id: notificationChannels.id })
+    .get();
+  return row.id;
+}
+
+/** Update a channel's name and/or config. Type is intentionally immutable. */
+export function updateChannel(
+  channelId: number,
+  fields: { name?: string; config?: string },
+  target: NotificationDb = db,
+): boolean {
+  const result = target
+    .update(notificationChannels)
+    .set(fields)
+    .where(eq(notificationChannels.id, channelId))
+    .run();
+  return result.changes > 0;
+}
+
+/** Flip a channel's enabled flag (1/0). Returns false when id is absent. */
+export function setChannelEnabled(
+  channelId: number,
+  enabled: boolean,
+  target: NotificationDb = db,
+): boolean {
+  const result = target
+    .update(notificationChannels)
+    .set({ enabled: enabled ? 1 : 0 })
+    .where(eq(notificationChannels.id, channelId))
+    .run();
+  return result.changes > 0;
+}
+
+/** Delete a channel. FK CASCADE removes its rules and deliveries (events stay). */
+export function deleteChannel(channelId: number, target: NotificationDb = db): boolean {
+  const result = target
+    .delete(notificationChannels)
+    .where(eq(notificationChannels.id, channelId))
+    .run();
+  return result.changes > 0;
+}
+
+/** Insert shape for a rule (enabled is boolean; stored as 1/0). */
+export interface NewRuleFields {
+  name: string;
+  channelId: number;
+  source: string | null;
+  eventType: string | null;
+  domainId: number | null;
+  enabled: boolean;
+}
+
+/** Create a rule. Returns the new rule id. */
+export function createRule(fields: NewRuleFields, target: NotificationDb = db): number {
+  const row = target
+    .insert(notificationRules)
+    .values({ ...fields, enabled: fields.enabled ? 1 : 0 })
+    .returning({ id: notificationRules.id })
+    .get();
+  return row.id;
+}
+
+/** Update rule fields; explicit nulls persist as null ("All"). */
+export function updateRule(
+  ruleId: number,
+  fields: Partial<NewRuleFields>,
+  target: NotificationDb = db,
+): boolean {
+  const set: Record<string, unknown> = {};
+  if (fields.name !== undefined) set.name = fields.name;
+  if (fields.channelId !== undefined) set.channelId = fields.channelId;
+  if (fields.source !== undefined) set.source = fields.source;
+  if (fields.eventType !== undefined) set.eventType = fields.eventType;
+  if (fields.domainId !== undefined) set.domainId = fields.domainId;
+  if (fields.enabled !== undefined) set.enabled = fields.enabled ? 1 : 0;
+  const result = target
+    .update(notificationRules)
+    .set(set)
+    .where(eq(notificationRules.id, ruleId))
+    .run();
+  return result.changes > 0;
+}
+
+/** Flip a rule's enabled flag (1/0). Returns false when id is absent. */
+export function setRuleEnabled(
+  ruleId: number,
+  enabled: boolean,
+  target: NotificationDb = db,
+): boolean {
+  const result = target
+    .update(notificationRules)
+    .set({ enabled: enabled ? 1 : 0 })
+    .where(eq(notificationRules.id, ruleId))
+    .run();
+  return result.changes > 0;
+}
+
+/** Delete a rule. Events/deliveries are untouched (rule deletion is not retroactive). */
+export function deleteRule(ruleId: number, target: NotificationDb = db): boolean {
+  const result = target.delete(notificationRules).where(eq(notificationRules.id, ruleId)).run();
+  return result.changes > 0;
+}

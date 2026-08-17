@@ -27,6 +27,7 @@ const BASE = `http://${HOST}:${PORT}`;
 // Known test secrets (never real values).
 const TEST_EMAIL_KEY = "sk-test-email-key-0000000000";
 const TEST_WEBHOOK_SECRET = "whsec-test-secret-0000000000";
+const TEST_TELEGRAM_TOKEN = "TEST_TELEGRAM_BOT_TOKEN_VALUE_0000";
 
 // ---------------------------------------------------------------------------
 // Temporary DB with migrations + a fully-seeded domain
@@ -130,6 +131,27 @@ const channel = sqlite
     now,
   );
 const channelId = Number(channel.lastInsertRowid);
+
+// --- telegram channel (Phase 8C: CRUD UI rendering) ---
+const tgChannel = sqlite
+  .prepare(
+    `INSERT INTO notification_channels (type, name, config, enabled, created_at)
+     VALUES ('telegram', 'TG Alerts', ?, 1, ?)`,
+  )
+  .run(
+    JSON.stringify({
+      chatId: "1616146471",
+      secretRef: "TELEGRAM_BOT_TOKEN",
+    }),
+    now,
+  );
+const tgChannelId = Number(tgChannel.lastInsertRowid);
+sqlite
+  .prepare(
+    `INSERT INTO notification_rules (name, channel_id, source, event_type, domain_id, enabled, created_at)
+     VALUES ('tg-http-rule', ?, 'http', 'http_status_changed', ?, 1, ?)`,
+  )
+  .run(tgChannelId, domainId, now);
 
 sqlite
   .prepare(
@@ -294,6 +316,13 @@ async function run() {
     check("event type labels (en)", html.includes("HTTP status changed") && html.includes("DNS record added") && html.includes("SSL certificate replaced"));
     check("secret ref NAME shown, not value", html.includes("Secret ref") && !html.includes(TEST_WEBHOOK_SECRET));
     check("db error text rendered as-is", html.includes("Webhook returned HTTP 500."));
+    check("Add Channel button", html.includes("Add Channel"));
+    check("Add Rule button", html.includes("Add Rule"));
+    check("row actions present (Edit/Disable/Delete)", ["Edit", "Disable", "Delete"].every((b) => html.includes(`>${b}</button>`)));
+    check("telegram row renders Chat ID", html.includes("Chat ID") && html.includes("1616146471"));
+    check("telegram secretRef NAME shown, not value", html.includes("TELEGRAM_BOT_TOKEN") && !html.includes(TEST_TELEGRAM_TOKEN));
+    check("no channel marked configInvalid (RSC)", html.includes('configInvalid\\":false') && !html.includes('configInvalid\\":true'));
+    check("no token value in HTML", !html.includes(TEST_TELEGRAM_TOKEN));
   }
 
   console.log("GET /notifications — cookie zh-CN → Chinese");
@@ -308,6 +337,9 @@ async function run() {
     check("retry button zh (重试)", html.includes(">重试</button>"));
     check("event type labels (zh)", html.includes("HTTP 状态变更") && html.includes("新增 DNS 记录"));
     check("machine values NOT in HTML", !html.includes('>pending<') && !html.includes('>sent<') && !html.includes('>failed<'));
+    check("Add Channel button zh (新增渠道)", html.includes("新增渠道"));
+    check("Add Rule button zh (新增规则)", html.includes("新增规则"));
+    check("row actions zh (编辑/停用/删除)", ["编辑", "停用", "删除"].every((b) => html.includes(`>${b}</button>`)));
   }
 
   // --- /domains/[id] ---
@@ -359,6 +391,7 @@ async function run() {
         check(`no Bearer token in ${page} [${cookie ?? "no-cookie"}]`, !/Bearer\s+\S+/i.test(html));
         check(`no EMAIL_API_KEY value in ${page} [${cookie ?? "no-cookie"}]`, !html.includes(TEST_EMAIL_KEY));
         check(`no WEBHOOK_SECRET value in ${page} [${cookie ?? "no-cookie"}]`, !html.includes(TEST_WEBHOOK_SECRET));
+        check(`no TELEGRAM token value in ${page} [${cookie ?? "no-cookie"}]`, !html.includes(TEST_TELEGRAM_TOKEN));
       }
     }
     // No error page markers.
@@ -379,7 +412,7 @@ async function run() {
       await fetchWithCookie(page, undefined);
     }
     await new Promise((r) => setTimeout(r, 500));
-    check("no secret in server logs", !logs.includes(TEST_EMAIL_KEY) && !logs.includes(TEST_WEBHOOK_SECRET));
+    check("no secret in server logs", !logs.includes(TEST_EMAIL_KEY) && !logs.includes(TEST_WEBHOOK_SECRET) && !logs.includes(TEST_TELEGRAM_TOKEN));
     check("no Authorization header in logs", !/Authorization/i.test(logs));
   }
 
