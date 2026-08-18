@@ -54,8 +54,8 @@ export const en = {
       title: "No domains yet.",
       hint: "Add your first domain to start monitoring it.",
     },
-    expires: "Expires: {date}",
-    expirationUnavailable: "Expiration unavailable",
+    expires: "{date}",
+    expirationUnavailable: "Unavailable",
     formHint: "Accepts URLs and bare hostnames (e.g. https://example.com/path → example.com).",
   },
   rdap: {

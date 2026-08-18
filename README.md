@@ -51,6 +51,7 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 
 - Manage all monitored domains in one place — self-hosted local storage (SQLite)
 - Automatic RDAP lookup on creation: registrar, expiry, nameservers, RDAP status (IANA bootstrap, 590+ TLDs)
+- **Ownership-aware RDAP fallback**: when a subdomain has no independent RDAP object, the query falls back to the registered domain and reports `ownership = parent` — the parent's expiration/registrar/nameservers are **never** stored on the subdomain's own fields, and the UI shows `Unavailable` for the subdomain's registration info
 - Domain normalization and validation (accepts `https://example.com/path`, stores `example.com`)
 - Manual RDAP refresh anytime
 
@@ -129,14 +130,14 @@ A check writes its snapshot, its events, and the matching pending deliveries in 
 
 ## Built for Reliability
 
-- **687 tests** covering services, state machines, senders, the delivery worker, the i18n core, and admin authentication
+- **708 tests** covering services, state machines, senders, the delivery worker, the i18n core, and admin authentication
 - **SSRF-guarded** webhook and email senders
 - **SQLite concurrency tested** — atomic claim (CAS) + `busy_timeout = 5000`
 - **Self-hosted** — your data stays on your machine
 
 ## Current Status
 
-**Current release: v0.8.0 — Admin Authentication, Telegram Notifications & Encrypted Secrets**
+**Current release: v0.8.1 — RDAP Ownership & Expiration Fixes**
 
 Supported today:
 
@@ -217,7 +218,7 @@ Recommended: the CLI worker plus an external scheduler (system cron or equivalen
 pnpm test
 ```
 
-Current test suite: **687 tests (44 files)**, covering domain validation, RDAP parsing, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine, SSRF-guarded webhook and email senders, automatic Event → Delivery generation, the delivery worker, admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
+Current test suite: **708 tests (46 files)**, covering domain validation, RDAP parsing and fallback ownership semantics, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine, SSRF-guarded webhook and email senders, automatic Event → Delivery generation, the delivery worker, admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
 
 Also run before pushing changes:
 
@@ -270,6 +271,7 @@ pnpm db:studio     # Open the visual database browser
 - [x] **V0.7.1** — Bilingual UI
 - [x] **V0.7.3** — Monitoring error clarity
 - [x] **V0.8.0** — Admin authentication, Telegram notifications & encrypted secrets
+- [x] **V0.8.1** — RDAP ownership & expiration fixes (bugfix release)
 
 ## Contributing
 

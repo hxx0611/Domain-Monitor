@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.1] — 2026-08-18
+
+### Fixed
+
+- **RDAP fallback ownership** (Phase 10D): the registered-domain fallback previously treated parent-domain data as child-domain ownership. A query for a subdomain without its own RDAP object (e.g. `opusai.eu.cc` → 404) resolved to the parent (`eu.cc`) and the parent's expiration, registrar, nameservers and status were stored on the child row. RDAP results now carry explicit ownership detection (`exact` / `parent`), decided strictly from the RDAP object's canonical/LDH identity — never merely from "a fallback succeeded". Parent-derived data is **never** written to the child's own fields; the child is marked `rdap_status = ["no-object"]` and its expiration/registrar/dates/nameservers are cleared.
+- **Expiration-date UI duplication** (Phase 10A): the detail page showed the expiration twice (`Expiration` heading plus an `Expires: …` prefix inside the row). The row now renders a plain date.
+- **Production data repair** (Phase 10E): production records affected by the previous fallback behavior were corrected through the normal Refresh flow (subdomain RDAP fields cleared, parent data no longer displayed as the subdomain's expiration).
+- **RDAP fallback safety net** (Phase 10A): fallback is allowed only for `not-found` (HTTP 404 / no domain object) or a successful response without an expiration date; network, timeout, 429, 500 and invalid responses are never masked by a parent query; a bare TLD is never queried.
+
+### Changed
+
+- Version bumped from v0.8.0 → **v0.8.1** (bugfix / stability release; v0.8.0 tag and release are preserved).
+
+### Compatibility
+
+- No schema changes; no migration added. `updateDomainRdap(id, data, ownership)` now requires an explicit ownership argument.
+
 ## [v0.8.0] — 2026-08-18
 
 ### Added

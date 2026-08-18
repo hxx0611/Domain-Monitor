@@ -1,6 +1,6 @@
 # Domain-Monitor — Disaster Recovery
 
-> Verified recovery procedures and honest status of each scenario (updated 2026-08-18 for v0.8.0).
+> Verified recovery procedures and honest status of each scenario (updated 2026-08-18 for v0.8.1).
 
 ## Status of protections (factual)
 
@@ -33,7 +33,7 @@ Human steps: choosing the backup, confirming the target path.
 
 ## 3. Container fully rebuilt
 
-1. Reinstall runtime: Node ≥22, pnpm (corepack), project checkout at the v0.8.0 release commit, `pnpm install --frozen-lockfile`, `pnpm build`
+1. Reinstall runtime: Node ≥22, pnpm (corepack), project checkout at the v0.8.1 release commit, `pnpm install --frozen-lockfile`, `pnpm build`
 2. Recreate the entrypoint / service config for domain-monitor (it is **not** supervisor-managed in the current container; cloudflared is supervisor-managed)
 3. Reinstall cloudflared; **restore Tunnel credentials** (`cert.pem` + `f24997a3-….json`) — these live in the container; a copy must be held by the human operator
 4. Restore `.env` — **`ENCRYPTION_KEY` is mandatory** (without it, encrypted notification secrets cannot be decrypted; the app must still start but Telegram token resolution fails controlled)
@@ -44,7 +44,7 @@ Mostly **manual**; the DB restore part is scriptable.
 
 ## 4. Git recovery
 
-- Code source of truth: GitHub `hxx0611/Domain-Monitor`, main = v0.8.0 release commit (see `git rev-parse origin/main`). Re-clone, `pnpm install --frozen-lockfile`, `pnpm build`. No local-only code exists.
+- Code source of truth: GitHub `hxx0611/Domain-Monitor`, main = v0.8.1 release commit (see `git rev-parse origin/main`). Re-clone, `pnpm install --frozen-lockfile`, `pnpm build`. No local-only code exists.
 
 ## 5. Tunnel recovery
 
@@ -67,7 +67,7 @@ cloudflared tunnel info domain-monitor        # CONNECTIONS > 0
 node -e "const D=require('better-sqlite3');const db=new D('/tmp/domain-monitor/data/domain-monitor.db',{readonly:true});console.log(db.pragma('integrity_check')[0].integrity_check)"
 ```
 
-## v0.8.0 deployment order (release/deploy gate)
+## v0.8.1 deployment order (release/deploy gate)
 
 1. `pnpm build` (production build; never skip)
 2. **Restart the app** (build without restart = runtime mismatch — never allowed)

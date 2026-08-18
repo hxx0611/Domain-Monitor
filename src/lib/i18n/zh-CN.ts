@@ -55,8 +55,8 @@ export const zhCN = {
       title: "还没有域名。",
       hint: "添加第一个域名以开始监控。",
     },
-    expires: "到期时间：{date}",
-    expirationUnavailable: "到期时间不可用",
+    expires: "{date}",
+    expirationUnavailable: "不可用",
     formHint: "接受 URL 与裸主机名（例如 https://example.com/path → example.com）。",
   },
   rdap: {

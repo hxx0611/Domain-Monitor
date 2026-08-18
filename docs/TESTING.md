@@ -1,14 +1,14 @@
 # Domain-Monitor — Testing
 
-> Baseline: **687 passed** (44 files) as of v0.8.0. Commands below assume `cd /workspace/Domain-Monitor`.
+> Baseline: **708 passed** (46 files) as of v0.8.1. Commands below assume `cd /workspace/Domain-Monitor`.
 
-## Unit & integration tests (687)
+## Unit & integration tests (708)
 
 ```bash
-pnpm test                          # vitest run — src/**/*.test.ts (687 tests / 44 files)
+pnpm test                          # vitest run — src/**/*.test.ts (708 tests / 46 files)
 ```
 
-Covers: domains, RDAP, DNS/SSL/HTTP clients+normalize+diff+service+actions, error classifier, i18n (incl. dictionary symmetry + machine-value rules), notifications (events/rules/repository/delivery/worker), HTTP SSRF predicates, **admin authentication** (sessions, setup/login/logout/recovery, page & Server Action access guards), **encrypted secret storage** (AES-256-GCM round-trip, upsert, cascade, decrypt failure), **Telegram token actions** (getMe verification, encrypted save, edit keep-token semantics), **Telegram sender secret resolution** (encrypted → env fallback → controlled failure) including a real-network-mocked E2E (`telegram-sender-e2e.test.ts`).
+Covers: domains, RDAP, DNS/SSL/HTTP clients+normalize+diff+service+actions, error classifier, i18n (incl. dictionary symmetry + machine-value rules), notifications (events/rules/repository/delivery/worker), HTTP SSRF predicates, **admin authentication** (sessions, setup/login/logout/recovery, page & Server Action access guards), **encrypted secret storage** (AES-256-GCM round-trip, upsert, cascade, decrypt failure), **Telegram token actions** (getMe verification, encrypted save, edit keep-token semantics), **Telegram sender secret resolution** (encrypted → env fallback → controlled failure) including a real-network-mocked E2E (`telegram-sender-e2e.test.ts`), **RDAP fallback + ownership semantics** (`fallback.test.ts`, `rdap-link.test.ts`: exact / parent / no-object persistence, canonical-name mismatch, no fallback on network/timeout/429/500).
 
 ## Worker CLI & concurrency (separate configs)
 
@@ -60,6 +60,12 @@ pnpm build            # next build — 3/3 static pages (all dynamic)
 - Token UI: `getMe` success/failure paths; token only ever written via the server action to the encrypted store; edit mode keeps the existing token when the field is blank.
 - Sender resolution E2E (mocked network): encrypted secret used → env fallback used when no secret → controlled failure when neither; token never leaks into logs/errors/payloads.
 
+## V0.8.1 RDAP fallback & ownership tests
+
+- Fallback candidate generation: full hostname first, then parent labels; bare TLD never queried; case normalization.
+- Ownership semantics: `exact` when the RDAP object's canonical identity equals the queried hostname; `parent` when the object belongs to a parent label (including canonical-name mismatch on the first candidate); **parent data (expiration/registrar/nameservers/status) is never persisted on the child row** — the child is cleared and marked `rdap_status = ["no-object"]`.
+- No-object / error paths: all candidates 404 → nothing persisted (expiration stays null); network / timeout / 429 / 500 / invalid-response never fall back to a parent query.
+
 ## How to run the full suite
 
 ```bash
@@ -70,4 +76,4 @@ pnpm exec vitest run --config scripts/vitest.smoke.config.ts
 node scripts/ui-smoke.mjs && node scripts/interactive-switch-smoke.mjs
 ```
 
-Expected: 687 + 15 + 7 + 40 + UI smoke + interactive smoke all green.
+Expected: 708 + 15 + 7 + 40 + UI smoke + interactive smoke all green.

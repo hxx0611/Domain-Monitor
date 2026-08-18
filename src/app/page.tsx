@@ -2,7 +2,6 @@ import Link from "next/link";
 import { getDomains } from "@/lib/domains";
 import { formatDate } from "@/lib/format";
 import { getDictionary, getLocale } from "@/lib/i18n";
-import { interpolate } from "@/lib/i18n/config";
 import { requirePageAccess } from "@/lib/auth/admin";
 import { AddDomainForm } from "@/components/add-domain-form";
 import { DeleteDomainButton } from "@/components/delete-domain-button";
@@ -90,11 +89,7 @@ export default async function Home() {
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {domain.expirationDate ? (
-                        <span>
-                          {interpolate(dict.domains.expires, {
-                            date: formatDate(new Date(domain.expirationDate), locale),
-                          })}
-                        </span>
+                        <span>{formatDate(new Date(domain.expirationDate), locale)}</span>
                       ) : (
                         <span className="text-gray-400">{dict.domains.expirationUnavailable}</span>
                       )}

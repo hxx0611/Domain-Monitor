@@ -196,7 +196,7 @@ describe("interpolation", () => {
 
   it("t() resolves dotted paths and interpolates", () => {
     const dict: Dictionary = getDictionary("en");
-    expect(t(dict, "domains.expires", { date: "Aug 11, 2026" })).toBe("Expires: Aug 11, 2026");
+    expect(t(dict, "domains.expires", { date: "Aug 11, 2026" })).toBe("Aug 11, 2026");
     expect(t(getDictionary("zh-CN"), "ssl.daysRemaining", { count: 42 })).toBe("剩余 42 天");
     expect(t(dict, "status.pending")).toBe("Pending");
   });
@@ -389,8 +389,12 @@ describe("display helpers", () => {
     expect(en.domains.col.created).not.toBe("Created");
     expect(zhCN.domains.col.created).not.toBe("创建时间");
     // Registration/expiration stay distinct and honest when RDAP has no data.
-    expect(en.domains.expirationUnavailable).toBe("Expiration unavailable");
-    expect(zhCN.domains.expirationUnavailable).toBe("到期时间不可用");
+    // V0.8/10A: cell renders the bare date (table header is already
+    // "Expiration"/"到期时间"), so the unavailable fallback is bare too.
+    expect(en.domains.expirationUnavailable).toBe("Unavailable");
+    expect(zhCN.domains.expirationUnavailable).toBe("不可用");
+    expect(en.domains.expirationUnavailable).not.toContain("Expiration");
+    expect(zhCN.domains.expirationUnavailable).not.toContain("到期时间");
   });
 });
 

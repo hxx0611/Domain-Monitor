@@ -51,6 +51,7 @@ pnpm dev
 
 - 集中管理所有被监控域名 —— 自托管本地存储（SQLite）
 - 域名创建时自动执行 RDAP 查询：注册商、到期时间、名称服务器、RDAP 状态（IANA bootstrap，590+ TLD）
+- **ownership 感知的 RDAP fallback**：当子域名没有独立 RDAP object 时，查询会回退到注册域并报告 `ownership = parent` —— 父域的到期时间/注册商/名称服务器**绝不**写入子域名自身字段，UI 对子域名的注册信息显示 `Unavailable`
 - 域名规范化与校验（接受 `https://example.com/path`，存储为 `example.com`）
 - 随时手动刷新 RDAP
 
@@ -129,14 +130,14 @@ flowchart LR
 
 ## 为可靠性而构建
 
-- **687 个测试**（44 个文件），覆盖服务、状态机、发送器、投递 Worker、i18n 核心与管理员认证
+- **708 个测试**（46 个文件），覆盖服务、状态机、发送器、投递 Worker、i18n 核心与管理员认证
 - **SSRF 防护**的 webhook 与 email 发送器
 - **SQLite 并发经过测试** —— 原子 claim（CAS）+ `busy_timeout = 5000`
 - **自托管** —— 数据留在你自己的机器上
 
 ## 当前状态
 
-**当前版本：v0.8.0 — 管理员认证、Telegram 通知与加密密钥存储**
+**当前版本：v0.8.1 — RDAP Ownership 与到期信息修复**
 
 当前支持：
 
@@ -217,7 +218,7 @@ Worker 从不打印密钥：不打印 API key、不打印 `Authorization`/`Beare
 pnpm test
 ```
 
-当前测试套件：**687 个测试（44 个文件）**，覆盖域名校验、RDAP 解析、DNS 规范化与 diff、SSL 证书解析与 diff、HTTP 状态分类与 SSRF 防护抓取、DNS/SSL/HTTP 服务、通知事件/规则/投递状态机、SSRF 防护的 webhook 与 email 发送器、自动 Event → Delivery 生成、投递 Worker、管理员认证（会话、setup/login/recovery）、加密密钥存储、Telegram 发送器密钥解析、语言感知的 i18n 核心（字典、cookie 回退、客户端/服务端边界）与数据仓库。
+当前测试套件：**708 个测试（46 个文件）**，覆盖域名校验、RDAP 解析与 fallback ownership 语义、DNS 规范化与 diff、SSL 证书解析与 diff、HTTP 状态分类与 SSRF 防护抓取、DNS/SSL/HTTP 服务、通知事件/规则/投递状态机、SSRF 防护的 webhook 与 email 发送器、自动 Event → Delivery 生成、投递 Worker、管理员认证（会话、setup/login/recovery）、加密密钥存储、Telegram 发送器密钥解析、语言感知的 i18n 核心（字典、cookie 回退、客户端/服务端边界）与数据仓库。
 
 推送改动前还需运行：
 
@@ -270,6 +271,7 @@ pnpm db:studio     # 打开可视化数据库浏览器
 - [x] **V0.7.1** — 双语 UI
 - [x] **V0.7.3** — 监控错误分类
 - [x] **V0.8.0** — 管理员认证、Telegram 通知与加密密钥存储
+- [x] **V0.8.1** — RDAP Ownership 与到期信息修复（bugfix 版本）
 
 ## 参与贡献
 

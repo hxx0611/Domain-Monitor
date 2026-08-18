@@ -1,6 +1,6 @@
 # Domain-Monitor — Notifications & Delivery Worker
 
-> V0.6 pipeline (events → rules → deliveries → senders) + V0.7 worker + V0.8 (Telegram channel, notification configuration UI, encrypted secret storage, sender secret resolution). Core guarantee: **at-least-once, no automatic retry**.
+> V0.6 pipeline (events → rules → deliveries → senders) + V0.7 worker + V0.8 (Telegram channel, notification configuration UI, encrypted secret storage, sender secret resolution). v0.8.1 (RDAP ownership & expiration fixes) does not change this pipeline. Core guarantee: **at-least-once, no automatic retry**.
 
 ## Events
 

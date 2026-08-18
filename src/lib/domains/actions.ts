@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createDomain, deleteDomain, getDomainById, updateDomainRdap } from "./repository";
 import { normalizeHostname } from "./validation";
-import { queryRdap } from "@/lib/rdap";
+import { queryRdapWithFallback } from "@/lib/rdap";
 import { requireAdmin } from "@/lib/auth/admin";
 
 export type DomainActionResult = { ok: true; hostname: string } | { ok: false; error: string };
@@ -42,8 +42,8 @@ export async function createDomainAction(input: string): Promise<DomainActionRes
   }
 
   try {
-    const rdap = await queryRdap(domain.hostname);
-    updateDomainRdap(domain.id, rdap);
+    const { data, ownership } = await queryRdapWithFallback(domain.hostname);
+    updateDomainRdap(domain.id, data, ownership);
   } catch (error) {
     // Domain creation still succeeds; the detail page shows
     // "RDAP information unavailable." with a manual Refresh option.
@@ -69,8 +69,8 @@ export async function refreshRdapAction(id: number): Promise<DomainActionResult>
   }
 
   try {
-    const rdap = await queryRdap(domain.hostname);
-    updateDomainRdap(id, rdap);
+    const { data, ownership } = await queryRdapWithFallback(domain.hostname);
+    updateDomainRdap(id, data, ownership);
   } catch (error) {
     console.error(`[rdap] refresh failed for domain ${id} (${domain.hostname}):`, error);
     return { ok: false, error: RDAP_UNAVAILABLE_MESSAGE };

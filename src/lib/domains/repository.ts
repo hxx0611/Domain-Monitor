@@ -3,7 +3,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { domains, type Domain } from "@/db/schema";
-import type { RdapDomainData } from "@/lib/rdap";
+import type { RdapDomainData, RdapOwnership } from "@/lib/rdap";
 
 /**
  * Data access layer for domains.
@@ -78,8 +78,43 @@ export function deleteDomain(id: number): boolean {
  * Store normalized RDAP data for a domain. Returns `true` when the domain
  * exists and was updated. Only the fields we actually use are persisted —
  * the raw RDAP JSON is never stored.
+ *
+ * Ownership semantics (Phase 10D): the caller MUST pass the `ownership`
+ * reported by `queryRdapWithFallback`.
+ *
+ *   - `"exact"` — the RDAP object belongs to this domain; all object fields
+ *     (registrar, dates, nameservers, status) are stored as-is.
+ *   - `"parent"` — the matched RDAP object belongs to a parent label (e.g.
+ *     `eu.cc` for `opusai.eu.cc`). Parent-derived data describes the
+ *     registered domain, NOT this domain, so it is NEVER written to the
+ *     child's own fields: they are cleared and `rdapStatus` is marked
+ *     `["no-object"]`. No schema change is needed; the check result is not
+ *     persisted beyond that marker.
  */
-export function updateDomainRdap(id: number, data: RdapDomainData): boolean {
+export function updateDomainRdap(
+  id: number,
+  data: RdapDomainData,
+  ownership: RdapOwnership,
+): boolean {
+  if (ownership !== "exact") {
+    const row = db
+      .update(domains)
+      .set({
+        registrar: null,
+        registrationDate: null,
+        expirationDate: null,
+        updatedDate: null,
+        rdapUpdatedAt: new Date(),
+        nameservers: "[]",
+        rdapStatus: JSON.stringify(["no-object"]),
+      })
+      .where(eq(domains.id, id))
+      .returning({ id: domains.id })
+      .get();
+
+    return row !== undefined;
+  }
+
   const row = db
     .update(domains)
     .set({
