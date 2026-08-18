@@ -199,13 +199,14 @@ export async function retryDeliveryAction(deliveryId: number): Promise<RetryDeli
 export type CrudResult = { ok: true } | { ok: false; error: string };
 
 const CHANNEL_TYPES = new Set<string>(["email", "webhook", "telegram"]);
-const RULE_SOURCES = new Set<string>(["dns", "ssl", "http"]);
+const RULE_SOURCES = new Set<string>(["dns", "ssl", "http", "expiration"]);
 const RULE_EVENT_TYPES = new Set<string>([
   "dns_record_added",
   "dns_record_removed",
   "ssl_cert_replaced",
   "ssl_status_changed",
   "http_status_changed",
+  "expiration_reminder",
 ]);
 const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 

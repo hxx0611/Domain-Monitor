@@ -2,7 +2,7 @@
 
 > Operational procedures for the production deployment. No credentials here.
 >
-> ⚠️ **As of v0.8.0 (Phase 9J redeploy, 2026-08-18) this runbook describes the ORIGINAL deployment only** (v0.8.1 does not change it). In the current container the app is started by the **container entrypoint** (not supervisor-managed), the production DB is `/tmp/domain-monitor/data/domain-monitor.db`, and the scheduled backup script/cron is **not present**. See `docs/PROJECT_HANDOVER.md`, `docs/DATABASE.md`, and `docs/DISASTER_RECOVERY.md` for the current facts; keep this file for reference to the original supervisor-based setup.
+> ⚠️ **As of v0.8.0 (Phase 9J redeploy, 2026-08-18) this runbook describes the ORIGINAL deployment only** (v0.8.2 does not change it). In the current container the app is started by the **container entrypoint** (not supervisor-managed), the production DB is `/tmp/domain-monitor/data/domain-monitor.db`, and the scheduled backup script/cron is **not present**. See `docs/PROJECT_HANDOVER.md`, `docs/DATABASE.md`, and `docs/DISASTER_RECOVERY.md` for the current facts; keep this file for reference to the original supervisor-based setup.
 
 ## Status
 

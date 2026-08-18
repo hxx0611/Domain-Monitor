@@ -1,16 +1,16 @@
 # Domain-Monitor — ChatGPT Handover
 
-> Top-level AI handover. Read this first, then the referenced docs. Updated 2026-08-18 for v0.8.1 from the workspace where the project was built, deployed, and tested end-to-end.
+> Top-level AI handover. Read this first, then the referenced docs. Updated 2026-08-18 for v0.8.2 from the workspace where the project was built, deployed, and tested end-to-end.
 
 ## 1. What you are taking over
 
-**Domain-Monitor** — a self-hosted domain lifecycle monitoring platform (RDAP / DNS / SSL / HTTP monitoring, snapshot history, bilingual UI, notification pipeline with telegram/webhook/email delivery, error classification, admin authentication, encrypted secret storage, RDAP fallback ownership semantics). Built through 10+ released versions (v0.4.0 → v0.8.1), fully tested (708 tests), and **deployed to production** behind Cloudflare Tunnel on a container.
+**Domain-Monitor** — a self-hosted domain lifecycle monitoring platform (RDAP / DNS / SSL / HTTP monitoring, snapshot history, bilingual UI, notification pipeline with telegram/webhook/email delivery, error classification, admin authentication, encrypted secret storage, RDAP fallback ownership semantics, manual expiration & reminders). Built through 11+ released versions (v0.4.0 → v0.8.2), fully tested (761 tests), and **deployed to production** behind Cloudflare Tunnel on a container.
 
 ## 2. Code baseline
 
 - Repository: `https://github.com/hxx0611/Domain-Monitor`
-- main HEAD: the **v0.8.1 release commit** (see `git rev-parse origin/main`)
-- Release: **v0.8.1 — RDAP Ownership & Expiration Fixes** (tag `v0.8.1`); **v0.8.0 — Admin Authentication, Telegram Notifications & Encrypted Secrets** (tag `v0.8.0`, preserved)
+- main HEAD: the **v0.8.2 release commit** (see `git rev-parse origin/main`)
+- Release: **v0.8.2 — Manual Expiration & Reminders** (tag `v0.8.2`); **v0.8.1 — RDAP Ownership & Expiration Fixes** (tag `v0.8.1`, preserved); **v0.8.0 — Admin Authentication, Telegram Notifications & Encrypted Secrets** (tag `v0.8.0`, preserved)
 - Stack: Next.js 15.5.23 (App Router/Server Actions/RSC) · React 19 · Drizzle ORM 0.44.7 · better-sqlite3 13.0.3 · Node ≥22 · pnpm 11.2.2
 - Docs: `docs/PROJECT_HANDOVER.md` (project), `docs/ARCHITECTURE_DECISIONS.md` (why), `docs/DATABASE.md`, `docs/MONITORING.md`, `docs/NOTIFICATIONS.md`, `docs/TESTING.md`
 
@@ -37,9 +37,9 @@ cloudflared tunnel run domain-monitor (supervisor-managed)
 
 ## 5. Database
 
-- Production: `/tmp/domain-monitor/data/domain-monitor.db` — 12 tables, 7 migrations (0000–0006), FK on, busy_timeout 5000
+- Production: `/tmp/domain-monitor/data/domain-monitor.db` — 13 tables, 8 migrations (0000–0007), FK on, busy_timeout 5000
 - `admin_settings` (1 row, admin initialized), `notification_secrets` (1 row, encrypted Telegram token)
-- 2 monitored domains: chatgpt.com, opusai.eu.cc; 1 Telegram channel; 4 notification rules; events/deliveries empty
+- 2 monitored domains: chatgpt.com, opusai.eu.cc (both `expiration_source = 'rdap'` since migration 0007); 1 Telegram channel; 4 notification rules; events/deliveries empty; `expiration_reminders` empty (no manual reminders configured yet)
 - Never treat any `/tmp` scratch DB or the repo `data/` DB as production
 - Details: `docs/DATABASE.md`
 
@@ -51,12 +51,12 @@ cloudflared tunnel run domain-monitor (supervisor-managed)
 
 ## 7. Test status
 
-- **708 passed** (46 files) — includes admin auth (sessions, setup/login/logout/recovery, page/action guards), encrypted secret storage (AES-256-GCM round-trip/upsert/cascade/failure), Telegram token actions (getMe, encrypted save, edit keep-token), Telegram sender secret-resolution E2E (encrypted → env fallback → controlled failure, zero token leakage), and **RDAP fallback + ownership** (exact/parent/no-object persistence, canonical-name mismatch, no fallback on network/timeout/429/500)
-- Plus worker CLI 7 + concurrency 15 + scripts smoke 40 + UI smoke + interactive i18n smoke (separate configs)
+- **761 passed** (50 files) — includes admin auth (sessions, setup/login/logout/recovery, page/action guards), encrypted secret storage (AES-256-GCM round-trip/upsert/cascade/failure), Telegram token actions (getMe, encrypted save, edit keep-token), Telegram sender secret-resolution E2E (encrypted → env fallback → controlled failure, zero token leakage), **RDAP fallback + ownership** (exact/parent/no-object persistence, canonical-name mismatch, no fallback on network/timeout/429/500), and **manual expiration & reminders** (source semantics, manual-vs-RDAP persistence, provider validation, reminder-day normalization, `expiration_reminder` event generation/dedup)
+- Plus worker CLI 7 + concurrency 15 + scripts smoke 40 + UI smoke + interactive i18n smoke (separate configs; the scripts configs require the `tsx` runtime, which is **not installed** in this container — treat those as environment-blocked, not release failures)
 - CI: Ubuntu Node 22/24/26 + Windows Node 24 fresh-install guard
 - Full commands: `docs/TESTING.md`
 
-## 8. Secrets (v0.8.0 / v0.8.1 unchanged)
+## 8. Secrets (v0.8.0 / v0.8.1 / v0.8.2 unchanged)
 
 - **`ENCRYPTION_KEY`** (32-byte / 64 hex) — required in production; lives only in `/tmp/domain-monitor/.env` (mode 600). Without it, encrypted notification secrets cannot be decrypted (controlled failure; no plaintext fallback).
 - Admin password + recovery code: created by the human operator via `/setup`; **never written to docs/Git/logs**.

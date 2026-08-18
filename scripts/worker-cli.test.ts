@@ -161,7 +161,14 @@ describe("V0.7 CLI contract (scripts/worker.ts)", () => {
     expect(r.code).toBe(0);
     expect(r.stderr).toBe("");
     const result = JSON.parse(r.stdout.trim()) as Record<string, unknown>;
-    expect(result).toEqual({ recovered: 0, attempted: 0, sent: 0, failed: 0, skipped: 0 });
+    expect(result).toEqual({
+      expirationEvents: 0,
+      recovered: 0,
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+    });
   });
 
   it("--limit 3 and --limit=3 both cap the tick at 3", async () => {

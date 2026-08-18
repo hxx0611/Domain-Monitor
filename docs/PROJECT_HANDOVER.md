@@ -1,6 +1,6 @@
 # Domain-Monitor — Project Handover
 
-> AI-to-AI handover. Updated 2026-08-18 for v0.8.1. GitHub `hxx0611/Domain-Monitor` is the **source of truth for code**; this document describes the project, its architecture, and how to continue working on it safely.
+> AI-to-AI handover. Updated 2026-08-18 for v0.8.2. GitHub `hxx0611/Domain-Monitor` is the **source of truth for code**; this document describes the project, its architecture, and how to continue working on it safely.
 
 ## Project overview
 
@@ -20,12 +20,13 @@
 - **Encrypted secret storage** (V0.8.0 / Phase 9F): AES-256-GCM encrypted notification secrets (`ENCRYPTION_KEY`)
 - **Telegram channel + configuration UI** (V0.8.0 / Phases 9G–9H): channel/rule CRUD, getMe token verification, sender secret resolution with legacy env fallback
 - **RDAP fallback + ownership semantics** (V0.8.1 / Phases 10A–10E): registered-domain fallback only on `not-found` / no-expiration (never on network/timeout/429/500), bare TLD never queried; results carry `ownership` (`exact`/`parent`) decided from the RDAP object's canonical identity; parent data is never stored on the child's fields (child marked `rdap_status = ["no-object"]`, UI shows `Unavailable`); production data affected by the old fallback was repaired through the normal Refresh flow
+- **Manual expiration & reminders** (V0.8.2 / Phase 11A): `expiration_source` (`rdap` default / `manual`), manual registration date / expiration date / registration platform (validated presets + custom HTTPS URL) / management URL; manual dates are never overwritten by RDAP refreshes; per-domain `expiration_reminders` (unique domain+days) evaluated by the worker as `expiration_reminder` events (source `expiration`); **automatic delivery not yet enabled in production** (worker `tsx` runtime not installed there)
 
 ## Current version
 
-- **v0.8.1 — RDAP Ownership & Expiration Fixes** (bugfix / stability release over v0.8.0)
-- Git commit: see `git rev-parse HEAD` / `origin/main` (release commit for v0.8.1)
-- GitHub Release: **v0.8.1** (tag `v0.8.1`); **v0.8.0 tag/release preserved** (still points at `9816178`)
+- **v0.8.2 — Manual Expiration & Reminders** (feature release over v0.8.1)
+- Git commit: see `git rev-parse HEAD` / `origin/main` (release commit for v0.8.2)
+- GitHub Release: **v0.8.2** (tag `v0.8.2`); **v0.8.1 / v0.8.0 tags and releases preserved**
 - The `v0.7.3` tag still points at `fe4b704` (never moved); **no v0.7.3 GitHub Release was ever published** — the v0.7.2/v0.7.3 eras exist only as git tags/commits.
 
 ## Tech stack

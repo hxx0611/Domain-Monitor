@@ -22,13 +22,14 @@ import {
   type RuleView,
 } from "@/lib/notifications/actions";
 
-const SOURCES = ["dns", "ssl", "http"] as const;
+const SOURCES = ["dns", "ssl", "http", "expiration"] as const;
 const EVENT_TYPES = [
   "dns_record_added",
   "dns_record_removed",
   "ssl_cert_replaced",
   "ssl_status_changed",
   "http_status_changed",
+  "expiration_reminder",
 ] as const;
 
 export interface RuleFormOption {

@@ -1,6 +1,6 @@
 # Domain-Monitor — Disaster Recovery
 
-> Verified recovery procedures and honest status of each scenario (updated 2026-08-18 for v0.8.1).
+> Verified recovery procedures and honest status of each scenario (updated 2026-08-18 for v0.8.2).
 
 ## Status of protections (factual)
 
@@ -33,7 +33,7 @@ Human steps: choosing the backup, confirming the target path.
 
 ## 3. Container fully rebuilt
 
-1. Reinstall runtime: Node ≥22, pnpm (corepack), project checkout at the v0.8.1 release commit, `pnpm install --frozen-lockfile`, `pnpm build`
+1. Reinstall runtime: Node ≥22, pnpm (corepack), project checkout at the v0.8.2 release commit, `pnpm install --frozen-lockfile`, `pnpm build`
 2. Recreate the entrypoint / service config for domain-monitor (it is **not** supervisor-managed in the current container; cloudflared is supervisor-managed)
 3. Reinstall cloudflared; **restore Tunnel credentials** (`cert.pem` + `f24997a3-….json`) — these live in the container; a copy must be held by the human operator
 4. Restore `.env` — **`ENCRYPTION_KEY` is mandatory** (without it, encrypted notification secrets cannot be decrypted; the app must still start but Telegram token resolution fails controlled)
@@ -44,7 +44,7 @@ Mostly **manual**; the DB restore part is scriptable.
 
 ## 4. Git recovery
 
-- Code source of truth: GitHub `hxx0611/Domain-Monitor`, main = v0.8.1 release commit (see `git rev-parse origin/main`). Re-clone, `pnpm install --frozen-lockfile`, `pnpm build`. No local-only code exists.
+- Code source of truth: GitHub `hxx0611/Domain-Monitor`, main = v0.8.2 release commit (see `git rev-parse origin/main`). Re-clone, `pnpm install --frozen-lockfile`, `pnpm build`. No local-only code exists.
 
 ## 5. Tunnel recovery
 
@@ -67,14 +67,15 @@ cloudflared tunnel info domain-monitor        # CONNECTIONS > 0
 node -e "const D=require('better-sqlite3');const db=new D('/tmp/domain-monitor/data/domain-monitor.db',{readonly:true});console.log(db.pragma('integrity_check')[0].integrity_check)"
 ```
 
-## v0.8.1 deployment order (release/deploy gate)
+## v0.8.2 deployment order (release/deploy gate)
 
-1. `pnpm build` (production build; never skip)
-2. **Restart the app** (build without restart = runtime mismatch — never allowed)
-3. HTTP smoke: `/` → 307, `/login` → 200, `/setup` → 200 (after admin exists)
-4. Browserless / real-browser render check (no Application/Hydration/ChunkLoad errors)
-5. Leakage audit (no token/password/recovery code/ENCRYPTION_KEY in HTML/RSC/bundles/logs)
-6. DB read-only verification (integrity, counts, secrets present as `iv:tag:ciphertext` only)
+1. Apply pending migrations (`0007` for v0.8.2 — additive; run manually as plain SQL if not using `pnpm db:migrate`)
+2. `pnpm build` (production build; never skip)
+3. **Restart the app** (build without restart = runtime mismatch — never allowed; SIGTERM the exact next-server PID, never pkill)
+4. HTTP smoke: `/` → 307, `/login` → 200, `/setup` → 200 (after admin exists)
+5. Browserless / real-browser render check (no Application/Hydration/ChunkLoad errors)
+6. Leakage audit (no token/password/recovery code/ENCRYPTION_KEY in HTML/RSC/bundles/logs)
+7. DB read-only verification (integrity, counts, secrets present as `iv:tag:ciphertext` only)
 
 ## Honest gaps
 

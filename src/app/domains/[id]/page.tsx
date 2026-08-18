@@ -1,15 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getDomainById } from "@/lib/domains";
+import { getDomainById, getExpirationReminders, getRegistrationProvider } from "@/lib/domains";
 import { formatDate } from "@/lib/format";
 import { getDictionary, getLocale } from "@/lib/i18n";
 import { interpolate } from "@/lib/i18n/config";
 import { errorMessage, lookup } from "@/lib/i18n/display";
+import { domainFormLabels } from "@/lib/i18n/domain-form-labels";
 import type { Dictionary } from "@/lib/i18n/en";
 import { RefreshRdapButton } from "@/components/refresh-rdap-button";
 import { CheckDnsButton } from "@/components/check-dns-button";
 import { CheckSslButton } from "@/components/check-ssl-button";
 import { CheckHttpButton } from "@/components/check-http-button";
+import { EditDomainButton } from "@/components/edit-domain-form";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { requirePageAccess } from "@/lib/auth/admin";
@@ -154,7 +156,18 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
   const locale: Locale = await getLocale();
   const dict = getDictionary(locale);
 
+  const reminders = getExpirationReminders(domain.id);
+  const provider = domain.registrationProvider
+    ? getRegistrationProvider(domain.registrationProvider)
+    : undefined;
+  const providerUrl = domain.registrationProviderUrl ?? provider?.websiteUrl ?? null;
+
   const rdapAvailable = domain.rdapUpdatedAt !== null;
+  const hasManualData =
+    domain.registrationDate !== null ||
+    domain.expirationDate !== null ||
+    domain.registrationProvider !== null;
+  const showRdapSection = rdapAvailable || hasManualData;
 
   const latestSnapshot = getLatestDnsSnapshot(domain.id);
   const history = getDnsSnapshots(domain.id, 10);
@@ -179,8 +192,28 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
         </div>
       </nav>
 
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight">{domain.hostname}</h1>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold tracking-tight">{domain.hostname}</h1>
+          {domain.expirationSource === "manual" && (
+            <span className="mt-1 inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+              {lookup(dict, "domains.expirationSource.manual")}
+            </span>
+          )}
+        </div>
+        <EditDomainButton
+          domain={{
+            id: domain.id,
+            hostname: domain.hostname,
+            expirationSource: domain.expirationSource,
+            registrationDate: domain.registrationDate,
+            expirationDate: domain.expirationDate,
+            registrationProvider: domain.registrationProvider,
+            registrationProviderUrl: domain.registrationProviderUrl,
+          }}
+          reminders={reminders.map((reminder) => reminder.daysBefore)}
+          labels={domainFormLabels(dict)}
+        />
       </header>
 
       <section className="mb-10 rounded-lg border border-gray-200">
@@ -223,8 +256,30 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
           />
         </div>
 
-        {rdapAvailable ? (
+        {showRdapSection ? (
           <dl className="divide-y divide-gray-100 text-sm">
+            {domain.registrationProvider ? (
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <dt className="shrink-0 text-gray-500">
+                  {lookup(dict, "domains.registrationPlatform")}
+                </dt>
+                <dd className="text-right">
+                  <span className="font-medium text-gray-900">{domain.registrationProvider}</span>
+                  {providerUrl && (
+                    <a
+                      href={providerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-2 text-sm font-medium text-blue-600 hover:underline"
+                      title={lookup(dict, "domains.manageDomain")}
+                    >
+                      {lookup(dict, "domains.manageDomain")}
+                      <span className="ml-0.5">↗</span>
+                    </a>
+                  )}
+                </dd>
+              </div>
+            ) : null}
             <InfoRow label="rdap.registrar" value={domain.registrar ?? undefined} dict={dict} />
             <InfoRow
               label="rdap.registration"
@@ -235,15 +290,25 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
               }
               dict={dict}
             />
-            <InfoRow
-              label="rdap.expiration"
-              value={
-                domain.expirationDate
-                  ? formatDate(new Date(domain.expirationDate), locale)
-                  : undefined
-              }
-              dict={dict}
-            />
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <dt className="shrink-0 text-gray-500">{lookup(dict, "rdap.expiration")}</dt>
+              <dd className="text-right">
+                {domain.expirationDate ? (
+                  <span className="inline-flex items-center gap-2 font-medium text-gray-900">
+                    {formatDate(new Date(domain.expirationDate), locale)}
+                    {domain.expirationSource === "manual" && (
+                      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                        {lookup(dict, "domains.expirationSource.manual")}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="font-normal text-gray-400">
+                    {lookup(dict, "common.notAvailable")}
+                  </span>
+                )}
+              </dd>
+            </div>
             <InfoRow
               label="common.lastUpdated"
               value={
@@ -261,6 +326,28 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
               value={domain.rdapStatus.length > 0 ? domain.rdapStatus.join(", ") : undefined}
               dict={dict}
             />
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <dt className="shrink-0 text-gray-500">
+                {lookup(dict, "domains.expirationReminders")}
+              </dt>
+              <dd className="text-right">
+                {reminders.length > 0 ? (
+                  <span className="font-medium text-gray-900">
+                    {reminders
+                      .map((reminder) =>
+                        interpolate(lookup(dict, "domains.domainForm.reminderDays"), {
+                          days: reminder.daysBefore,
+                        }),
+                      )
+                      .join(" · ")}
+                  </span>
+                ) : (
+                  <span className="font-normal text-gray-400">
+                    {lookup(dict, "domains.noReminders")}
+                  </span>
+                )}
+              </dd>
+            </div>
           </dl>
         ) : (
           <p className="px-4 py-6 text-sm text-gray-500">{lookup(dict, "rdap.unavailable")}</p>

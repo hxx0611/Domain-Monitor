@@ -67,3 +67,133 @@ export function normalizeHostname(input: string): ValidationResult {
 
   return { ok: true, hostname };
 }
+
+// ---------------------------------------------------------------------------
+// Manual expiration validation (Phase 11A-5)
+// ---------------------------------------------------------------------------
+
+export type ManualDateValidationResult =
+  | { ok: true; registrationDate: string | null; expirationDate: string | null }
+  | { ok: false; error: string };
+
+const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Validate a calendar date string of the form YYYY-MM-DD.
+ *
+ * The regex alone would accept impossible dates (e.g. 2026-02-31), so the
+ * parsed values are round-tripped through `Date.UTC` to reject them.
+ * Returns `true` when the string is a real calendar date.
+ */
+export function isValidIsoDate(value: string): boolean {
+  const match = ISO_DATE_PATTERN.exec(value);
+  if (!match) {
+    return false;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
+}
+
+/**
+ * Normalize a user-supplied date field.
+ *
+ * Accepts an empty string → null (field not provided). Otherwise the value
+ * must be a valid YYYY-MM-DD calendar date; anything else fails with
+ * "invalid_date".
+ */
+export function normalizeOptionalIsoDate(
+  raw: string | undefined | null,
+): string | null | "invalid_date" {
+  if (raw === undefined || raw === null || raw.trim() === "") {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!isValidIsoDate(trimmed)) {
+    return "invalid_date";
+  }
+  return trimmed;
+}
+
+/**
+ * Validate the manual date pair:
+ * - both fields, when present, must be valid YYYY-MM-DD dates;
+ * - when both are present, `expiration` must be >= `registration`.
+ *
+ * Returns "invalid_date" | "invalid_date_range" on failure.
+ */
+export function validateManualDates(
+  registrationRaw: string | undefined | null,
+  expirationRaw: string | undefined | null,
+): ManualDateValidationResult {
+  const registrationDate = normalizeOptionalIsoDate(registrationRaw);
+  if (registrationDate === "invalid_date") {
+    return { ok: false, error: "invalid_date" };
+  }
+  const expirationDate = normalizeOptionalIsoDate(expirationRaw);
+  if (expirationDate === "invalid_date") {
+    return { ok: false, error: "invalid_date" };
+  }
+  if (registrationDate !== null && expirationDate !== null) {
+    if (expirationDate < registrationDate) {
+      return { ok: false, error: "invalid_date_range" };
+    }
+  }
+  return { ok: true, registrationDate, expirationDate };
+}
+
+export type ReminderValidationResult = { ok: true; days: number[] } | { ok: false; error: string };
+
+/** Allowed reminder range (days before expiration). */
+export const REMINDER_MIN_DAYS = 1;
+export const REMINDER_MAX_DAYS = 3650;
+
+/**
+ * Normalize a reminder-days input: positive integer in [1, 3650], supplied
+ * either as a numeric string ("30") or as a number (30 — the client form
+ * sends numbers from its checkbox/custom-day state). Anything else
+ * (non-integer, <= 0, > 3650, boolean, object) fails with
+ * "invalid_reminder".
+ */
+export function normalizeReminderDays(raw: unknown): number | "invalid_reminder" {
+  const value = typeof raw === "string" ? raw.trim() : raw;
+  if (typeof value === "number") {
+    if (!Number.isInteger(value) || value < REMINDER_MIN_DAYS || value > REMINDER_MAX_DAYS) {
+      return "invalid_reminder";
+    }
+    return value;
+  }
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    return "invalid_reminder";
+  }
+  const days = Number(value);
+  if (!Number.isInteger(days) || days < REMINDER_MIN_DAYS || days > REMINDER_MAX_DAYS) {
+    return "invalid_reminder";
+  }
+  return days;
+}
+
+/**
+ * Normalize a list of reminder days: every entry must be a valid integer in
+ * [1, 3650]; duplicates are removed (30, 30 → [30]).
+ */
+export function normalizeReminderDaysList(raw: unknown[]): ReminderValidationResult {
+  const seen = new Set<number>();
+  const days: number[] = [];
+  for (const entry of raw) {
+    const normalized = normalizeReminderDays(entry);
+    if (normalized === "invalid_reminder") {
+      return { ok: false, error: "invalid_reminder" };
+    }
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      days.push(normalized);
+    }
+  }
+  days.sort((a, b) => b - a);
+  return { ok: true, days };
+}

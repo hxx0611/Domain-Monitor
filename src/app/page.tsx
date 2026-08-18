@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { getDomains } from "@/lib/domains";
+import { getDomains, getRegistrationProvider } from "@/lib/domains";
 import { formatDate } from "@/lib/format";
 import { getDictionary, getLocale } from "@/lib/i18n";
+import { domainFormLabels } from "@/lib/i18n/domain-form-labels";
 import { requirePageAccess } from "@/lib/auth/admin";
 import { AddDomainForm } from "@/components/add-domain-form";
 import { DeleteDomainButton } from "@/components/delete-domain-button";
@@ -35,15 +36,7 @@ export default async function Home() {
         </div>
       </header>
 
-      <AddDomainForm
-        labels={{
-          add: dict.actions.addDomain,
-          adding: dict.actions.adding,
-          cancel: dict.actions.cancel,
-          domain: dict.domains.col.domain,
-          formHint: dict.domains.formHint,
-        }}
-      />
+      <AddDomainForm labels={domainFormLabels(dict)} />
 
       <section className="mt-10">
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
@@ -78,46 +71,75 @@ export default async function Home() {
                 </tr>
               </thead>
               <tbody>
-                {domains.map((domain) => (
-                  <tr key={domain.id} className="border-b border-gray-100 last:border-b-0">
-                    <td className="px-4 py-3 font-medium text-gray-900">{domain.hostname}</td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                        <span className="size-1.5 rounded-full bg-green-500" />
-                        {domain.status === "active" ? dict.status.active : domain.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {domain.expirationDate ? (
-                        <span>{formatDate(new Date(domain.expirationDate), locale)}</span>
-                      ) : (
-                        <span className="text-gray-400">{dict.domains.expirationUnavailable}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {formatDate(domain.createdAt, locale)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-3">
-                        <Link
-                          href={`/domains/${domain.id}`}
-                          className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                        >
-                          {dict.actions.view}
-                        </Link>
-                        <DeleteDomainButton
-                          id={domain.id}
-                          hostname={domain.hostname}
-                          labels={{
-                            delete: dict.actions.delete,
-                            deleting: dict.actions.deleting,
-                            confirmTemplate: dict.actions.deleteConfirm,
-                          }}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {domains.map((domain) => {
+                  const provider = domain.registrationProvider
+                    ? getRegistrationProvider(domain.registrationProvider)
+                    : undefined;
+                  const providerUrl =
+                    domain.registrationProviderUrl ?? provider?.websiteUrl ?? null;
+                  return (
+                    <tr key={domain.id} className="border-b border-gray-100 last:border-b-0">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900">{domain.hostname}</span>
+                          {domain.expirationSource === "manual" && (
+                            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                              {dict.domains.expirationSource.manual}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                          <span className="size-1.5 rounded-full bg-green-500" />
+                          {domain.status === "active" ? dict.status.active : domain.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {domain.expirationDate ? (
+                          <span>{formatDate(new Date(domain.expirationDate), locale)}</span>
+                        ) : (
+                          <span className="text-gray-400">
+                            {dict.domains.expirationUnavailable}
+                          </span>
+                        )}
+                        {domain.registrationProvider && providerUrl && (
+                          <a
+                            href={providerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-2 text-xs text-blue-600 hover:underline"
+                            title={dict.domains.manageDomain}
+                          >
+                            {domain.registrationProvider}
+                          </a>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {formatDate(domain.createdAt, locale)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-3">
+                          <Link
+                            href={`/domains/${domain.id}`}
+                            className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {dict.actions.view}
+                          </Link>
+                          <DeleteDomainButton
+                            id={domain.id}
+                            hostname={domain.hostname}
+                            labels={{
+                              delete: dict.actions.delete,
+                              deleting: dict.actions.deleting,
+                              confirmTemplate: dict.actions.deleteConfirm,
+                            }}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

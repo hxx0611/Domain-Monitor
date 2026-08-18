@@ -20,6 +20,7 @@ const EVENT_TYPE_KEYS: Record<string, string> = {
   ssl_cert_replaced: "events.sslCertReplaced",
   ssl_status_changed: "events.sslStatusChanged",
   http_status_changed: "events.httpStatusChanged",
+  expiration_reminder: "events.expirationReminder",
 };
 
 /** Look up a dotted path in a dictionary (fail-safe: returns path). */

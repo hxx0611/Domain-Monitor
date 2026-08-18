@@ -2,65 +2,91 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createDomainAction } from "@/lib/domains/actions";
+import { updateDomainAction } from "@/lib/domains/actions";
 import { REGISTRATION_PROVIDERS } from "@/lib/domains/providers";
+import { REMINDER_PRESETS, reminderDaysLabel, type AddDomainFormLabels } from "./add-domain-form";
 
-/** Preset reminder days (Phase 11A-7). Defaults are all OFF. */
-export const REMINDER_PRESETS = [90, 60, 30, 14, 7, 3, 1] as const;
-
-export interface AddDomainFormLabels {
-  add: string;
-  adding: string;
-  cancel: string;
-  domain: string;
-  formHint: string;
-  // Phase 11A
-  edit: string;
-  expirationSource: string;
-  automatic: string;
-  manual: string;
-  registrationDate: string;
-  expirationDate: string;
-  registrationProvider: string;
-  customProvider: string;
-  manageUrl: string;
-  manageUrlHint: string;
-  expirationReminders: string;
-  enableReminders: string;
-  reminderDaysTemplate: string;
-  addReminder: string;
-  reminderPlaceholder: string;
-  manualHint: string;
-  save: string;
-  saving: string;
-  errorMessages: Record<string, string>;
+export interface EditDomainView {
+  id: number;
+  hostname: string;
+  expirationSource: "rdap" | "manual";
+  registrationDate: string | null;
+  expirationDate: string | null;
+  registrationProvider: string | null;
+  registrationProviderUrl: string | null;
 }
 
-/** Interpolate the "{days} days before expiration" template client-side. */
-export function reminderDaysLabel(labels: AddDomainFormLabels, days: number): string {
-  return labels.reminderDaysTemplate.replace("{days}", String(days));
+/** "Edit" trigger — toggles the edit form in place (like AddRuleButton). */
+export function EditDomainButton({
+  domain,
+  reminders,
+  labels,
+}: {
+  domain: EditDomainView;
+  reminders: number[];
+  labels: AddDomainFormLabels;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+      >
+        {labels.edit}
+      </button>
+    );
+  }
+  return (
+    <EditDomainForm
+      domain={domain}
+      reminders={reminders}
+      labels={labels}
+      onDone={() => setOpen(false)}
+    />
+  );
 }
 
-const inputClass =
-  "w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60";
-
-export function AddDomainForm({ labels }: { labels: AddDomainFormLabels }) {
+export function EditDomainForm({
+  domain,
+  reminders,
+  labels,
+  onDone,
+}: {
+  domain: EditDomainView;
+  reminders: number[];
+  labels: AddDomainFormLabels;
+  onDone: () => void;
+}) {
   const router = useRouter();
-  const [isOpen, setIsOpen] = useState(false);
-  const [hostname, setHostname] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // Phase 11A state
-  const [source, setSource] = useState<"rdap" | "manual">("rdap");
-  const [registrationDate, setRegistrationDate] = useState("");
-  const [expirationDate, setExpirationDate] = useState("");
-  const [provider, setProvider] = useState<string>("");
-  const [providerName, setProviderName] = useState("");
-  const [providerUrl, setProviderUrl] = useState("");
-  const [remindersEnabled, setRemindersEnabled] = useState(false);
-  const [presetDays, setPresetDays] = useState<ReadonlySet<number>>(new Set());
-  const [customDays, setCustomDays] = useState<number[]>([]);
+  const presetIds = new Set(REGISTRATION_PROVIDERS.map((preset) => preset.id));
+  const initialProvider = domain.registrationProvider ?? "";
+  const initialProviderIsPreset = presetIds.has(initialProvider);
+
+  const [source, setSource] = useState<"rdap" | "manual">(domain.expirationSource);
+  const [registrationDate, setRegistrationDate] = useState(
+    domain.registrationDate?.slice(0, 10) ?? "",
+  );
+  const [expirationDate, setExpirationDate] = useState(domain.expirationDate?.slice(0, 10) ?? "");
+  const [provider, setProvider] = useState<string>(
+    initialProviderIsPreset ? initialProvider : initialProvider ? "custom" : "",
+  );
+  const [providerName, setProviderName] = useState(
+    initialProvider && !initialProviderIsPreset ? initialProvider : "",
+  );
+  const [providerUrl, setProviderUrl] = useState(domain.registrationProviderUrl ?? "");
+  const [remindersEnabled, setRemindersEnabled] = useState(reminders.length > 0);
+  const [presetDays, setPresetDays] = useState<ReadonlySet<number>>(
+    () =>
+      new Set(reminders.filter((days) => (REMINDER_PRESETS as readonly number[]).includes(days))),
+  );
+  const [customDays, setCustomDays] = useState<number[]>(
+    reminders.filter((days) => !(REMINDER_PRESETS as readonly number[]).includes(days)),
+  );
   const [customInput, setCustomInput] = useState("");
 
   function togglePreset(days: number, checked: boolean) {
@@ -89,18 +115,18 @@ export function AddDomainForm({ labels }: { labels: AddDomainFormLabels }) {
 
     setError(null);
 
-    const reminders = remindersEnabled ? [...presetDays, ...customDays] : [];
+    const remindersList = remindersEnabled ? [...presetDays, ...customDays] : [];
     const providerValue = provider === "custom" ? providerName.trim() || null : provider || null;
     const url = providerUrl.trim() || null;
 
     startTransition(async () => {
-      const result = await createDomainAction(hostname, {
+      const result = await updateDomainAction(domain.id, {
         expirationSource: source,
         registrationDate: source === "manual" ? registrationDate : null,
         expirationDate: source === "manual" ? expirationDate : null,
         registrationProvider: providerValue,
         registrationProviderUrl: url,
-        reminders,
+        reminders: remindersList,
       });
 
       if (!result.ok) {
@@ -108,60 +134,23 @@ export function AddDomainForm({ labels }: { labels: AddDomainFormLabels }) {
         return;
       }
 
-      setHostname("");
-      setRegistrationDate("");
-      setExpirationDate("");
-      setProvider("");
-      setProviderName("");
-      setProviderUrl("");
-      setRemindersEnabled(false);
-      setPresetDays(new Set());
-      setCustomDays([]);
-      setIsOpen(false);
       router.refresh();
+      onDone?.();
     });
   }
 
-  if (!isOpen) {
-    return (
-      <button
-        type="button"
-        onClick={() => setIsOpen(true)}
-        className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-      >
-        {labels.add}
-      </button>
-    );
-  }
+  const inputClass =
+    "w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60";
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
+    <form
+      onSubmit={handleSubmit}
+      className="max-w-xl space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4"
+    >
       <div>
-        <label htmlFor="domain-input" className="mb-1.5 block text-sm font-medium text-gray-700">
-          {labels.domain}
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="domain-input"
-            type="text"
-            value={hostname}
-            onChange={(event) => setHostname(event.target.value)}
-            placeholder="example.com"
-            autoFocus
-            disabled={isPending}
-            className={inputClass}
-          />
-          <button
-            type="submit"
-            disabled={isPending}
-            className="shrink-0 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-60"
-          >
-            {isPending ? labels.saving : labels.save}
-          </button>
-        </div>
+        <span className="text-sm font-medium text-gray-900">{domain.hostname}</span>
       </div>
 
-      {/* Expiration source */}
       <fieldset>
         <legend className="mb-1.5 block text-sm font-medium text-gray-700">
           {labels.expirationSource}
@@ -222,7 +211,6 @@ export function AddDomainForm({ labels }: { labels: AddDomainFormLabels }) {
         </>
       )}
 
-      {/* Registration platform */}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block text-sm">
           <span className="mb-1 block font-medium text-gray-700">
@@ -273,7 +261,6 @@ export function AddDomainForm({ labels }: { labels: AddDomainFormLabels }) {
         <span className="mt-1 block text-xs text-gray-500">{labels.manageUrlHint}</span>
       </label>
 
-      {/* Expiration reminders */}
       <fieldset>
         <legend className="mb-1.5 block text-sm font-medium text-gray-700">
           {labels.expirationReminders}
@@ -289,7 +276,7 @@ export function AddDomainForm({ labels }: { labels: AddDomainFormLabels }) {
           {labels.enableReminders}
         </label>
         {remindersEnabled && (
-          <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3">
+          <div className="space-y-2 rounded-md border border-gray-200 bg-white p-3">
             <div className="flex flex-wrap gap-3">
               {REMINDER_PRESETS.map((days) => (
                 <label key={days} className="flex items-center gap-1.5 text-sm text-gray-800">
@@ -357,17 +344,23 @@ export function AddDomainForm({ labels }: { labels: AddDomainFormLabels }) {
         <p className="mt-2 text-xs text-gray-500">{labels.formHint}</p>
       )}
 
-      <button
-        type="button"
-        onClick={() => {
-          setIsOpen(false);
-          setError(null);
-        }}
-        disabled={isPending}
-        className="text-sm text-gray-500 hover:text-gray-700 hover:underline"
-      >
-        {labels.cancel}
-      </button>
+      <div className="mt-4 flex gap-2">
+        <button
+          type="submit"
+          disabled={isPending}
+          className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {isPending ? labels.saving : labels.save}
+        </button>
+        <button
+          type="button"
+          onClick={onDone}
+          disabled={isPending}
+          className="rounded-md border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+        >
+          {labels.cancel}
+        </button>
+      </div>
     </form>
   );
 }

@@ -12,6 +12,7 @@ Keep your domains under control: track registration data, detect DNS and SSL cha
 
 - **Event-driven notifications** — changes become events, events become notifications
 - **Telegram / Webhook / Email** delivery to your tools
+- **Manual expiration & reminders** — set expiry dates manually (RDAP or manual source), register a platform, and schedule expiration reminders
 - **Delivery Worker** — one-shot CLI, schedule with cron, no daemon
 - **Admin authentication** — setup wizard, login, one-time recovery code
 - **English / 简体中文** UI
@@ -52,6 +53,8 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 - Manage all monitored domains in one place — self-hosted local storage (SQLite)
 - Automatic RDAP lookup on creation: registrar, expiry, nameservers, RDAP status (IANA bootstrap, 590+ TLDs)
 - **Ownership-aware RDAP fallback**: when a subdomain has no independent RDAP object, the query falls back to the registered domain and reports `ownership = parent` — the parent's expiration/registrar/nameservers are **never** stored on the subdomain's own fields, and the UI shows `Unavailable` for the subdomain's registration info
+- **Manual expiration** (source = `manual`): set registration date, expiration date, registration platform and management URL by hand — for domains whose RDAP data is unreliable, missing, or simply not what you want to display. Manual dates are **never overwritten** by RDAP refreshes (the refresh only updates RDAP metadata, or clears it for `no-object` / parent results)
+- **Expiration reminders**: per-domain reminder rules (e.g. 30 days before expiry); the notification worker evaluates them and emits `expiration_reminder` events (see **Delivery Worker** below for the current availability note)
 - Domain normalization and validation (accepts `https://example.com/path`, stores `example.com`)
 - Manual RDAP refresh anytime
 
@@ -80,7 +83,7 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 
 - Domain lifecycle events from DNS / SSL / HTTP checks
 - Channels: **Telegram**, **Email API**, and **Webhook**
-- Rule-based delivery matching (global or per-domain rules, by source / event type)
+- Rule-based delivery matching (global or per-domain rules, by source / event type — including the `expiration_reminder` event type)
 - Notification configuration UI — channel CRUD (create / edit / toggle / delete), rule CRUD
 - Telegram bot tokens validated via `getMe` (server-side) and stored **AES-256-GCM encrypted** (`ENCRYPTION_KEY`), with legacy `TELEGRAM_BOT_TOKEN` env fallback
 - Delivery history with status tracking (pending / sending / sent / failed) and manual retry
@@ -93,8 +96,11 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 
 ### Delivery Worker
 
+> **Availability note (v0.8.2):** the worker ships and is fully tested, but **automatic delivery is not yet enabled** on the production deployment of this project (the `tsx` runtime the worker CLI requires is not installed there). Expiration-reminder evaluation and delivery are ready in the codebase; enable them by installing the runtime dependency and scheduling `pnpm worker` via cron. The manual expiration / registration platform / reminder **UI and rule configuration are fully live** regardless.
+
 - One-shot CLI (`pnpm worker`) — schedule with cron, no daemon, no HTTP endpoint
 - **Automatic Event → Delivery generation inside the check transaction** (atomic)
+- **Expiration reminders**: `evaluateExpirationReminders()` runs inside the worker tick and emits `expiration_reminder` events (source `expiration`) for domains whose reminder day has arrived, deduplicated so a domain is reminded once per day
 - Stale `sending` recovery (crash-safe) and concurrent-worker safety (SQLite CAS)
 
 ### Bilingual UI
@@ -130,25 +136,27 @@ A check writes its snapshot, its events, and the matching pending deliveries in 
 
 ## Built for Reliability
 
-- **708 tests** covering services, state machines, senders, the delivery worker, the i18n core, and admin authentication
+- **761 tests** covering services, state machines, senders, the delivery worker, manual expiration & reminders, the i18n core, and admin authentication
 - **SSRF-guarded** webhook and email senders
 - **SQLite concurrency tested** — atomic claim (CAS) + `busy_timeout = 5000`
 - **Self-hosted** — your data stays on your machine
 
 ## Current Status
 
-**Current release: v0.8.1 — RDAP Ownership & Expiration Fixes**
+**Current release: v0.8.2 — Manual Expiration & Reminders**
 
 Supported today:
 
 - Domain management
 - RDAP information
+- **Manual expiration** — set registration / expiration dates, registration platform and management URL manually; manual dates survive RDAP refreshes
+- **Expiration reminders** — per-domain reminder days, evaluated by the worker as `expiration_reminder` events
 - DNS monitoring
 - SSL certificate monitoring
 - HTTP health checks
-- Notification system (telegram / email / webhook channels, rules, delivery history, manual retry)
+- Notification system (telegram / email / webhook channels, rules — including `expiration_reminder` — delivery history, manual retry)
 - Notification configuration UI (channel & rule CRUD, Telegram token setup with `getMe` verification)
-- Delivery worker (automatic Event → Delivery → Send pipeline, one-shot CLI + external cron)
+- Delivery worker (automatic Event → Delivery → Send pipeline, one-shot CLI + external cron; **not yet enabled in production**, see the availability note above)
 - Admin authentication (setup wizard, login/logout, recovery code, protected pages)
 - Encrypted secret storage (AES-256-GCM, `ENCRYPTION_KEY`, legacy env fallback)
 - Bilingual UI (English / 简体中文, cookie-based locale switching)
@@ -176,9 +184,10 @@ The worker runs **one tick and exits** — it never stays resident, starts no in
 Summary shape (stable):
 
 ```json
-{ "recovered": 0, "attempted": 0, "sent": 0, "failed": 0, "skipped": 0 }
+{ "expirationEvents": 0, "recovered": 0, "attempted": 0, "sent": 0, "failed": 0, "skipped": 0 }
 ```
 
+- `expirationEvents` — expiration-reminder events emitted this tick (V0.8.2)
 - `recovered` — stale `sending` deliveries moved back to `pending` (crash recovery)
 - `attempted` — deliveries this tick tried to deliver
 - `sent` / `failed` / `skipped` — outcomes (`skipped` = a concurrent worker claimed it first)
@@ -218,7 +227,7 @@ Recommended: the CLI worker plus an external scheduler (system cron or equivalen
 pnpm test
 ```
 
-Current test suite: **708 tests (46 files)**, covering domain validation, RDAP parsing and fallback ownership semantics, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine, SSRF-guarded webhook and email senders, automatic Event → Delivery generation, the delivery worker, admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
+Current test suite: **761 tests (50 files)**, covering domain validation (including manual expiration fields and reminder-day normalization), RDAP parsing and fallback ownership semantics, registration-platform validation, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine (including the `expiration_reminder` event type), SSRF-guarded webhook and email senders, automatic Event → Delivery generation, expiration-reminder evaluation, the delivery worker, admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
 
 Also run before pushing changes:
 
@@ -272,6 +281,7 @@ pnpm db:studio     # Open the visual database browser
 - [x] **V0.7.3** — Monitoring error clarity
 - [x] **V0.8.0** — Admin authentication, Telegram notifications & encrypted secrets
 - [x] **V0.8.1** — RDAP ownership & expiration fixes (bugfix release)
+- [x] **V0.8.2** — Manual expiration, registration platform & expiration reminders (worker delivery not yet enabled in production)
 
 ## Contributing
 

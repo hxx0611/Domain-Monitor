@@ -126,7 +126,14 @@ describe("worker runOnce", () => {
     const db = createTestDb();
     db.insert(domains).values({ id: 5, hostname: "example.com" }).run();
     const result = await runOnce({ db, now: NOW });
-    expect(result).toEqual({ recovered: 0, attempted: 0, sent: 0, failed: 0, skipped: 0 });
+    expect(result).toEqual({
+      expirationEvents: 0,
+      recovered: 0,
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+    });
   });
 
   it("pending → sent: one delivery delivered, attempts = 1", async () => {
@@ -139,7 +146,14 @@ describe("worker runOnce", () => {
     const sender = new RecordingSender("webhook", "ok");
     const result = await runOnce({ db, now: NOW, senders: () => sender });
 
-    expect(result).toEqual({ recovered: 0, attempted: 1, sent: 1, failed: 0, skipped: 0 });
+    expect(result).toEqual({
+      expirationEvents: 0,
+      recovered: 0,
+      attempted: 1,
+      sent: 1,
+      failed: 0,
+      skipped: 0,
+    });
     expect(sender.calls).toHaveLength(1);
     expect(sender.calls[0].deliveryId).toBe(deliveryId);
     const row = getDelivery(deliveryId, db)!;
@@ -158,7 +172,14 @@ describe("worker runOnce", () => {
     const sender = new RecordingSender("webhook", "fail");
     const result = await runOnce({ db, now: NOW, senders: () => sender });
 
-    expect(result).toEqual({ recovered: 0, attempted: 1, sent: 0, failed: 1, skipped: 0 });
+    expect(result).toEqual({
+      expirationEvents: 0,
+      recovered: 0,
+      attempted: 1,
+      sent: 0,
+      failed: 1,
+      skipped: 0,
+    });
     const row = getDelivery(deliveryId, db)!;
     expect(row.status).toBe("failed");
     expect(row.attempts).toBe(1);
@@ -181,7 +202,14 @@ describe("worker runOnce", () => {
 
     const result = await runOnce({ db, now: NOW, limit: 3, senders: okSenders });
 
-    expect(result).toEqual({ recovered: 0, attempted: 3, sent: 3, failed: 0, skipped: 0 });
+    expect(result).toEqual({
+      expirationEvents: 0,
+      recovered: 0,
+      attempted: 3,
+      sent: 3,
+      failed: 0,
+      skipped: 0,
+    });
     for (const id of ids.slice(0, 3)) {
       expect(getDelivery(id, db)!.status).toBe("sent");
     }
@@ -265,7 +293,14 @@ describe("worker runOnce", () => {
       senders: () => new RecordingSender("webhook", ++call === 1 ? "fail" : "ok"),
     });
 
-    expect(result).toEqual({ recovered: 0, attempted: 2, sent: 1, failed: 1, skipped: 0 });
+    expect(result).toEqual({
+      expirationEvents: 0,
+      recovered: 0,
+      attempted: 2,
+      sent: 1,
+      failed: 1,
+      skipped: 0,
+    });
     expect(getDelivery(first, db)!.status).toBe("failed");
     expect(getDelivery(second, db)!.status).toBe("sent");
   });
@@ -363,7 +398,14 @@ describe("worker runOnce", () => {
         }),
     });
 
-    expect(result).toEqual({ recovered: 0, attempted: 1, sent: 1, failed: 0, skipped: 0 });
+    expect(result).toEqual({
+      expirationEvents: 0,
+      recovered: 0,
+      attempted: 1,
+      sent: 1,
+      failed: 0,
+      skipped: 0,
+    });
     // The key travels ONLY in the Authorization header of the request.
     expect(seenHeaders[0].Authorization).toBe(`Bearer ${EMAIL_KEY}`);
     // The worker result and the persisted row carry no secret material.

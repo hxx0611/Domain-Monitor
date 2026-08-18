@@ -192,5 +192,43 @@ export function eventTypeLabel(eventType: NotificationEventType): string {
       return "SSL status changed";
     case "http_status_changed":
       return "HTTP status changed";
+    case "expiration_reminder":
+      return "Expiration reminder";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Expiration reminders (Phase 11A-7/8)
+// ---------------------------------------------------------------------------
+
+export interface ExpirationReminderEventInput {
+  domainId: number;
+  /** The effective expiration date as stored on the domain (ISO string). */
+  expirationDate: string;
+  /** Days before expiration this reminder fires at. */
+  daysBefore: number;
+  occurredAt: Date;
+}
+
+/**
+ * Build the notification event for one expiration reminder.
+ *
+ * Dedup key: `expiration:{domainId}:{expirationDate}:{daysBefore}` — the
+ * same reminder for the same expiration date is reported exactly once, no
+ * matter how often the worker ticks. Changing the expiration date changes
+ * the key, so a moved expiry starts a fresh reminder cycle (Phase 11A-8).
+ */
+export function expirationReminderEvent(input: ExpirationReminderEventInput): NotificationEvent {
+  return {
+    domainId: input.domainId,
+    source: "expiration",
+    eventType: "expiration_reminder",
+    previousState: null,
+    currentState: serializeState({
+      expirationDate: input.expirationDate,
+      daysBefore: input.daysBefore,
+    }),
+    occurredAt: input.occurredAt,
+    dedupKey: buildDedupKey(["expiration", input.domainId, input.expirationDate, input.daysBefore]),
+  };
 }

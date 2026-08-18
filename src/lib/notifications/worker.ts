@@ -4,6 +4,8 @@
  * The worker is the missing consumer that turns the V0.6 pipeline into a
  * real background capability:
  *
+ *   evaluateExpirationReminders(now)  0. record due expiration reminders
+ *                                       (Phase 11A; idempotent by dedupKey)
  *   recoverStaleSending()           1. unstick `sending` rows past the
  *                                      stale threshold (worker crash)
  *   getPendingDeliveries(limit)     2. oldest-first pending batch
@@ -33,6 +35,7 @@ import {
   recoverStaleSending,
   type NotificationDb,
 } from "./repository";
+import { evaluateExpirationReminders } from "./expiration";
 import { deliverDelivery } from "./service";
 import { createSender } from "./senders/factory";
 import type {
@@ -61,6 +64,8 @@ export interface WorkerRunOptions {
 }
 
 export interface WorkerRunResult {
+  /** Expiration-reminder events newly recorded this tick (Phase 11A). */
+  expirationEvents: number;
   /** Deliveries unstuck from `sending` back to `pending` this tick. */
   recovered: number;
   /** Deliveries this tick attempted to deliver (claim attempted). */
@@ -82,6 +87,11 @@ export async function runOnce(options: WorkerRunOptions = {}): Promise<WorkerRun
   const staleAfterMs = options.staleAfterMs;
   const now = options.now;
   const senderFactory = options.senders ?? createSender;
+
+  // 0. Record due expiration reminders BEFORE deliveries are claimed, so a
+  //    reminder due this tick is delivered in this same tick. Idempotent:
+  //    events whose dedup key already exists are skipped (returns 0).
+  const expirationEvents = evaluateExpirationReminders(now ?? new Date(), db);
 
   // 1. Unstick stale `sending` rows BEFORE claiming anything new, so a
   //    crashed worker's deliveries get a chance in this same tick.
@@ -131,7 +141,7 @@ export async function runOnce(options: WorkerRunOptions = {}): Promise<WorkerRun
     }
   }
 
-  return { recovered, attempted, sent, failed, skipped };
+  return { expirationEvents, recovered, attempted, sent, failed, skipped };
 }
 
 /** Convert a persisted event row back to the pure NotificationEvent shape. */

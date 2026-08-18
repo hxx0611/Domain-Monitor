@@ -12,6 +12,7 @@
 
 - **事件驱动通知** —— 变化转化为事件，事件转化为通知
 - **Telegram / Webhook / Email** 投递到你的工具
+- **手动到期与提醒** —— 手动设置到期时间（RDAP 或 manual 来源）、登记平台，并安排到期提醒
 - **Delivery Worker** —— 一次性 CLI，配合 cron 调度，无 daemon
 - **管理员认证** —— 初始化向导、登录、一次性恢复码
 - **English / 简体中文** 界面
@@ -52,6 +53,8 @@ pnpm dev
 - 集中管理所有被监控域名 —— 自托管本地存储（SQLite）
 - 域名创建时自动执行 RDAP 查询：注册商、到期时间、名称服务器、RDAP 状态（IANA bootstrap，590+ TLD）
 - **ownership 感知的 RDAP fallback**：当子域名没有独立 RDAP object 时，查询会回退到注册域并报告 `ownership = parent` —— 父域的到期时间/注册商/名称服务器**绝不**写入子域名自身字段，UI 对子域名的注册信息显示 `Unavailable`
+- **手动到期**（来源 = `manual`）：手动设置注册日期、到期日期、登记平台与管理 URL —— 适用于 RDAP 数据不可靠、缺失或不符合展示需求的域名。手动日期**绝不会**被 RDAP 刷新覆盖（刷新只更新 RDAP 元数据，或对 `no-object` / parent 结果清空）
+- **到期提醒**：按域名配置提醒规则（例如到期前 30 天）；通知 Worker 会评估并产生 `expiration_reminder` 事件（可用性说明见下方 **Delivery Worker**）
 - 域名规范化与校验（接受 `https://example.com/path`，存储为 `example.com`）
 - 随时手动刷新 RDAP
 
@@ -93,8 +96,11 @@ pnpm dev
 
 ### 投递 Worker
 
+> **可用性说明（v0.8.2）：** Worker 已随版本发布且测试完备，但本项目的生产部署**尚未启用自动投递**（Worker CLI 所需的 `tsx` 运行时未安装）。到期提醒的评估与投递在代码中已就绪；安装运行时依赖并通过 cron 调度 `pnpm worker` 即可启用。手动到期 / 登记平台 / 提醒的 **UI 与规则配置已完整上线**，不受影响。
+
 - 一次性 CLI（`pnpm worker`）—— 配合 cron 调度，无 daemon、无 HTTP endpoint
 - **检查事务内自动生成 Event → Delivery**（原子操作）
+- **到期提醒**：`evaluateExpirationReminders()` 在 Worker tick 内运行，为到达提醒日的域名产生 `expiration_reminder` 事件（来源 `expiration`），按天去重，每个域名每天只提醒一次
 - 过期 `sending` 恢复（崩溃安全）与并发 Worker 安全（SQLite CAS）
 
 ### 双语 UI
@@ -130,25 +136,27 @@ flowchart LR
 
 ## 为可靠性而构建
 
-- **708 个测试**（46 个文件），覆盖服务、状态机、发送器、投递 Worker、i18n 核心与管理员认证
+- **761 个测试**（50 个文件），覆盖服务、状态机、发送器、投递 Worker、手动到期与提醒、i18n 核心与管理员认证
 - **SSRF 防护**的 webhook 与 email 发送器
 - **SQLite 并发经过测试** —— 原子 claim（CAS）+ `busy_timeout = 5000`
 - **自托管** —— 数据留在你自己的机器上
 
 ## 当前状态
 
-**当前版本：v0.8.1 — RDAP Ownership 与到期信息修复**
+**当前版本：v0.8.2 — 手动到期与到期提醒**
 
 当前支持：
 
 - 域名管理
 - RDAP 信息
+- **手动到期** —— 手动设置注册 / 到期日期、登记平台与管理 URL；手动日期在 RDAP 刷新后保持不变
+- **到期提醒** —— 按域名配置提醒天数，由 Worker 评估为 `expiration_reminder` 事件
 - DNS 监控
 - SSL 证书监控
 - HTTP 健康检查
-- 通知系统（telegram / email / webhook 渠道、规则、投递历史、手动重试）
+- 通知系统（telegram / email / webhook 渠道、规则——含 `expiration_reminder`——投递历史、手动重试）
 - 通知配置 UI（渠道与规则 CRUD、Telegram token 设置与 `getMe` 验证）
-- 投递 Worker（自动 Event → Delivery → Send 管道，一次性 CLI + 外部 cron）
+- 投递 Worker（自动 Event → Delivery → Send 管道，一次性 CLI + 外部 cron；**生产环境尚未启用**，见上方可用性说明）
 - 管理员认证（初始化向导、登录/登出、恢复码、受保护页面）
 - 加密密钥存储（AES-256-GCM、`ENCRYPTION_KEY`、legacy 环境变量回退）
 - 双语 UI（English / 简体中文，基于 cookie 的语言切换）
@@ -218,7 +226,7 @@ Worker 从不打印密钥：不打印 API key、不打印 `Authorization`/`Beare
 pnpm test
 ```
 
-当前测试套件：**708 个测试（46 个文件）**，覆盖域名校验、RDAP 解析与 fallback ownership 语义、DNS 规范化与 diff、SSL 证书解析与 diff、HTTP 状态分类与 SSRF 防护抓取、DNS/SSL/HTTP 服务、通知事件/规则/投递状态机、SSRF 防护的 webhook 与 email 发送器、自动 Event → Delivery 生成、投递 Worker、管理员认证（会话、setup/login/recovery）、加密密钥存储、Telegram 发送器密钥解析、语言感知的 i18n 核心（字典、cookie 回退、客户端/服务端边界）与数据仓库。
+当前测试套件：**761 个测试（50 个文件）**，覆盖域名校验（含手动到期字段与提醒天数规范化）、RDAP 解析与 fallback ownership 语义、登记平台校验、DNS 规范化与 diff、SSL 证书解析与 diff、HTTP 状态分类与 SSRF 防护抓取、DNS/SSL/HTTP 服务、通知事件/规则/投递状态机（含 `expiration_reminder` 事件类型）、SSRF 防护的 webhook 与 email 发送器、自动 Event → Delivery 生成、到期提醒评估、投递 Worker、管理员认证（会话、setup/login/recovery）、加密密钥存储、Telegram 发送器密钥解析、语言感知的 i18n 核心（字典、cookie 回退、客户端/服务端边界）与数据仓库。
 
 推送改动前还需运行：
 
@@ -272,6 +280,7 @@ pnpm db:studio     # 打开可视化数据库浏览器
 - [x] **V0.7.3** — 监控错误分类
 - [x] **V0.8.0** — 管理员认证、Telegram 通知与加密密钥存储
 - [x] **V0.8.1** — RDAP Ownership 与到期信息修复（bugfix 版本）
+- [x] **V0.8.2** — 手动到期、登记平台与到期提醒（生产环境尚未启用 Worker 自动投递）
 
 ## 参与贡献
 

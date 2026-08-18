@@ -1,8 +1,15 @@
 import "server-only";
 
 import { eq } from "drizzle-orm";
+import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { db } from "@/db";
-import { domains, type Domain } from "@/db/schema";
+import {
+  domains,
+  expirationReminders,
+  type Domain,
+  type ExpirationReminder,
+  type Schema,
+} from "@/db/schema";
 import type { RdapDomainData, RdapOwnership } from "@/lib/rdap";
 
 /**
@@ -40,36 +47,160 @@ function toDomainWithRdap(row: Domain): DomainWithRdap {
   };
 }
 
-export function getDomains(): DomainWithRdap[] {
-  return db.select().from(domains).orderBy(domains.createdAt).all().map(toDomainWithRdap);
+export function getDomains(target: BetterSQLite3Database<Schema> = db): DomainWithRdap[] {
+  return target.select().from(domains).orderBy(domains.createdAt).all().map(toDomainWithRdap);
 }
 
-export function getDomainById(id: number): DomainWithRdap | undefined {
-  const row = db.select().from(domains).where(eq(domains.id, id)).get();
+export function getDomainById(
+  id: number,
+  target: BetterSQLite3Database<Schema> = db,
+): DomainWithRdap | undefined {
+  const row = target.select().from(domains).where(eq(domains.id, id)).get();
   return row ? toDomainWithRdap(row) : undefined;
 }
 
-export function getDomainByHostname(hostname: string): Domain | undefined {
-  return db.select().from(domains).where(eq(domains.hostname, hostname)).get();
+export function getDomainByHostname(
+  hostname: string,
+  target: BetterSQLite3Database<Schema> = db,
+): Domain | undefined {
+  return target.select().from(domains).where(eq(domains.hostname, hostname)).get();
 }
 
 /**
  * Insert a domain. Callers must pass a hostname already normalized by
  * `normalizeHostname`. Returns the created row, or `undefined` when the
  * hostname already exists (unique constraint).
+ *
+ * Phase 11A: optional manual-expiration fields. When `expirationSource` is
+ * `"manual"`, the operator-supplied dates are persisted immediately; when
+ * omitted, the domain starts as `"rdap"` (automatic) with no dates.
  */
-export function createDomain(hostname: string): Domain | undefined {
-  const existing = getDomainByHostname(hostname);
+export function createDomain(
+  hostname: string,
+  fields?: {
+    expirationSource?: "rdap" | "manual";
+    registrationDate?: string | null;
+    expirationDate?: string | null;
+    registrationProvider?: string | null;
+    registrationProviderUrl?: string | null;
+  },
+  target: BetterSQLite3Database<Schema> = db,
+): Domain | undefined {
+  const existing = getDomainByHostname(hostname, target);
   if (existing) {
     return undefined;
   }
 
-  return db.insert(domains).values({ hostname }).returning().get();
+  const manual = fields?.expirationSource === "manual";
+  return target
+    .insert(domains)
+    .values({
+      hostname,
+      expirationSource: manual ? "manual" : "rdap",
+      registrationDate: manual ? (fields?.registrationDate ?? null) : null,
+      expirationDate: manual ? (fields?.expirationDate ?? null) : null,
+      registrationProvider: fields?.registrationProvider ?? null,
+      registrationProviderUrl: fields?.registrationProviderUrl ?? null,
+    })
+    .returning()
+    .get();
+}
+
+/**
+ * Update a domain's manual-expiration and registration-platform fields
+ * (Phase 11A). Returns `true` when the domain exists and was updated.
+ *
+ * - `expirationSource` "manual": the supplied `registrationDate` /
+ *   `expirationDate` are stored (both optional, validated by the caller).
+ * - `expirationSource` "rdap": manual dates are cleared and RDAP owns the
+ *   dates again (a subsequent Refresh re-populates them).
+ * - `registrationProvider` / `registrationProviderUrl`: free-form; URL is
+ *   validated by the caller.
+ */
+export function updateDomain(
+  id: number,
+  fields: {
+    expirationSource: "rdap" | "manual";
+    registrationDate?: string | null;
+    expirationDate?: string | null;
+    registrationProvider?: string | null;
+    registrationProviderUrl?: string | null;
+  },
+  target: BetterSQLite3Database<Schema> = db,
+): boolean {
+  const manual = fields.expirationSource === "manual";
+  const row = target
+    .update(domains)
+    .set({
+      expirationSource: manual ? "manual" : "rdap",
+      registrationDate: manual ? (fields.registrationDate ?? null) : null,
+      expirationDate: manual ? (fields.expirationDate ?? null) : null,
+      registrationProvider: fields.registrationProvider ?? null,
+      registrationProviderUrl: fields.registrationProviderUrl ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(domains.id, id))
+    .returning({ id: domains.id })
+    .get();
+
+  return row !== undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Expiration reminders (Phase 11A-7/8)
+// ---------------------------------------------------------------------------
+
+/** All reminders for a domain, ascending by days-before. */
+export function getExpirationReminders(
+  domainId: number,
+  target: BetterSQLite3Database<Schema> = db,
+): ExpirationReminder[] {
+  return target
+    .select()
+    .from(expirationReminders)
+    .where(eq(expirationReminders.domainId, domainId))
+    .orderBy(expirationReminders.daysBefore)
+    .all();
+}
+
+/**
+ * Replace a domain's reminder set atomically (delete + insert in one
+ * transaction). Duplicate days are impossible (unique index + caller
+ * normalization). An empty list clears all reminders. Returns the number
+ * of reminders saved.
+ */
+export function setExpirationReminders(
+  domainId: number,
+  days: number[],
+  target: BetterSQLite3Database<Schema> = db,
+): number {
+  return target.transaction((tx) => {
+    tx.delete(expirationReminders).where(eq(expirationReminders.domainId, domainId)).run();
+    if (days.length === 0) {
+      return 0;
+    }
+    const inserted = tx
+      .insert(expirationReminders)
+      .values(days.map((daysBefore) => ({ domainId, daysBefore })))
+      .returning({ id: expirationReminders.id })
+      .all();
+    return inserted.length;
+  });
+}
+
+/** All (domainId → reminder days) pairs for domains with reminders. */
+export function getAllExpirationReminders(
+  target: BetterSQLite3Database<Schema> = db,
+): { domainId: number; daysBefore: number }[] {
+  return target
+    .select({ domainId: expirationReminders.domainId, daysBefore: expirationReminders.daysBefore })
+    .from(expirationReminders)
+    .all();
 }
 
 /** Returns `true` when a row was deleted, `false` when the id did not exist. */
-export function deleteDomain(id: number): boolean {
-  const row = db.delete(domains).where(eq(domains.id, id)).returning({ id: domains.id }).get();
+export function deleteDomain(id: number, target: BetterSQLite3Database<Schema> = db): boolean {
+  const row = target.delete(domains).where(eq(domains.id, id)).returning({ id: domains.id }).get();
 
   return row !== undefined;
 }
@@ -90,19 +221,37 @@ export function deleteDomain(id: number): boolean {
  *     child's own fields: they are cleared and `rdapStatus` is marked
  *     `["no-object"]`. No schema change is needed; the check result is not
  *     persisted beyond that marker.
+ *
+ * Manual-expiration protection (Phase 11A-6): when `expirationSource` is
+ * `"manual"`, the operator-maintained `expirationDate` (and its companion
+ * `registrationDate`) are NEVER modified by an RDAP refresh — not by an
+ * `exact` object, and especially not by a `parent` fallback (a parent's
+ * expiration must never be attributed to the child). RDAP metadata
+ * (`registrar`, `updatedDate`, `nameservers`, `rdapStatus`,
+ * `rdapUpdatedAt`) is still refreshed under the same ownership rules.
  */
 export function updateDomainRdap(
   id: number,
   data: RdapDomainData,
   ownership: RdapOwnership,
+  target: BetterSQLite3Database<Schema> = db,
 ): boolean {
+  const current = target.select().from(domains).where(eq(domains.id, id)).get();
+  if (!current) {
+    return false;
+  }
+
+  const manual = current.expirationSource === "manual";
+
   if (ownership !== "exact") {
-    const row = db
+    const row = target
       .update(domains)
       .set({
         registrar: null,
-        registrationDate: null,
-        expirationDate: null,
+        // 10D: parent RDAP data never becomes the child's own dates. With a
+        // manual source, the operator's dates are authoritative and stay.
+        registrationDate: manual ? current.registrationDate : null,
+        expirationDate: manual ? current.expirationDate : null,
         updatedDate: null,
         rdapUpdatedAt: new Date(),
         nameservers: "[]",
@@ -115,12 +264,13 @@ export function updateDomainRdap(
     return row !== undefined;
   }
 
-  const row = db
+  const row = target
     .update(domains)
     .set({
       registrar: data.registrar ?? null,
-      registrationDate: data.registrationDate ?? null,
-      expirationDate: data.expirationDate ?? null,
+      // Manual source: operator dates win over RDAP dates (exact object).
+      registrationDate: manual ? current.registrationDate : (data.registrationDate ?? null),
+      expirationDate: manual ? current.expirationDate : (data.expirationDate ?? null),
       updatedDate: data.updatedDate ?? null,
       rdapUpdatedAt: new Date(),
       nameservers: JSON.stringify(data.nameservers),

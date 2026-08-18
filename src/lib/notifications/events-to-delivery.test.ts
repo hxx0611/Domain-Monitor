@@ -493,7 +493,14 @@ describe("worker consumes auto-generated deliveries", () => {
     const sender = new RecordingSender();
     const result = await runOnce({ db, senders: () => sender });
 
-    expect(result).toEqual({ recovered: 0, attempted: 1, sent: 1, failed: 0, skipped: 0 });
+    expect(result).toEqual({
+      expirationEvents: 0,
+      recovered: 0,
+      attempted: 1,
+      sent: 1,
+      failed: 0,
+      skipped: 0,
+    });
     expect(sender.calls).toEqual([delivery.id]); // stable deliveryId
 
     const after = db.select().from(notificationDeliveries).all();

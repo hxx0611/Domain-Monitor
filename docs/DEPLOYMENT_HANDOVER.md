@@ -2,7 +2,7 @@
 
 > Deployment facts as verified 2026-08-16. Credentials are reported only as CONFIGURED / NOT CONFIGURED — never values.
 >
-> ⚠️ **As of v0.8.0 (Phase 9J redeploy, 2026-08-18) this file describes the ORIGINAL deployment** (v0.8.1 does not change it). In the current container the app is started by the container **entrypoint** (supervisor only manages cloudflared/system services), the production DB is `/tmp/domain-monitor/data/domain-monitor.db`, and the scheduled backup cron/script is not present. Current facts: `docs/PROJECT_HANDOVER.md`, `docs/DATABASE.md`, `docs/DISASTER_RECOVERY.md`.
+> ⚠️ **As of v0.8.0 (Phase 9J redeploy, 2026-08-18) this file describes the ORIGINAL deployment** (v0.8.2 does not change it). In the current container the app is started by the container **entrypoint** (supervisor only manages cloudflared/system services), the production DB is `/tmp/domain-monitor/data/domain-monitor.db`, and the scheduled backup cron/script is not present. Current facts: `docs/PROJECT_HANDOVER.md`, `docs/DATABASE.md`, `docs/DISASTER_RECOVERY.md`.
 
 ## Topology
 

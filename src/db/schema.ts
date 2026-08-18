@@ -15,6 +15,16 @@ import { InferSelectModel, InferInsertModel } from "drizzle-orm";
  *   a single domain list has no need for separate tables at this stage).
  * - `rdapUpdatedAt` records when the RDAP data was last fetched, NOT the
  *   domain's own last-updated time (that is `updatedDate`).
+ *
+ * Manual expiration (V0.8.1 Phase 11A):
+ * - `expirationSource` tells where the effective `expirationDate` comes
+ *   from: `"rdap"` (automatic RDAP refresh owns the dates) or `"manual"`
+ *   (the operator maintains `registrationDate`/`expirationDate`; automatic
+ *   RDAP refresh must NEVER overwrite them — Phase 11A-6 hard rule).
+ * - `registrationProvider` / `registrationProviderUrl` are the operator's
+ *   registration platform (e.g. "GNAME") and an optional HTTPS manage URL.
+ *   They are deliberately free-form columns (small single-table app), not a
+ *   normalized provider table.
  */
 export const domains = sqliteTable("domains", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -34,10 +44,50 @@ export const domains = sqliteTable("domains", {
   rdapUpdatedAt: integer("rdap_updated_at", { mode: "timestamp" }),
   nameservers: text("nameservers"),
   rdapStatus: text("rdap_status"),
+  // Expiration source & registration platform (V0.8.1 Phase 11A)
+  expirationSource: text("expiration_source").$type<"rdap" | "manual">().notNull().default("rdap"),
+  registrationProvider: text("registration_provider"),
+  registrationProviderUrl: text("registration_provider_url"),
 });
 
 export type Domain = InferSelectModel<typeof domains>;
 export type NewDomain = InferInsertModel<typeof domains>;
+
+/**
+ * Expiration reminders (V0.8.1 Phase 11A).
+ *
+ * Per-domain "notify me N days before expiration" settings. The
+ * UNIQUE(domain_id, days_before) index makes duplicate reminder days
+ * impossible at the storage layer. A reminder is evaluated by the delivery
+ * worker: when the target day (expiration − days_before) has arrived, one
+ * `expiration_reminder` notification event is created; its dedup key
+ * (`expiration:{domainId}:{expirationDate}:{daysBefore}`) guarantees the
+ * same reminder for the same expiration date is only ever reported once,
+ * even if the worker ticks repeatedly. Changing the expiration date
+ * changes the key, so the old reminder cycle naturally expires.
+ *
+ * Deleting a domain cascades to its reminders.
+ */
+export const expirationReminders = sqliteTable(
+  "expiration_reminders",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    domainId: integer("domain_id")
+      .notNull()
+      .references(() => domains.id, { onDelete: "cascade" }),
+    /** Days before expiration to notify (integer 1..3650). */
+    daysBefore: integer("days_before").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("expiration_reminders_domain_days_unique").on(table.domainId, table.daysBefore),
+  ],
+);
+
+export type ExpirationReminder = InferSelectModel<typeof expirationReminders>;
+export type NewExpirationReminder = InferInsertModel<typeof expirationReminders>;
 
 /**
  * DNS monitoring (V0.3).
@@ -373,6 +423,7 @@ export type NewNotificationSecret = InferInsertModel<typeof notificationSecrets>
 
 export const schema = {
   domains,
+  expirationReminders,
   dnsSnapshots,
   dnsRecords,
   sslSnapshots,

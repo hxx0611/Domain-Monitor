@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.2] — 2026-08-18
+
+### Added
+
+- **Manual expiration** (Phase 11A): every domain now has an expiration source (`rdap` — automatic, the default — or `manual`). With `manual`, you can set the registration date, expiration date, registration platform (from validated presets or a custom provider + management URL) directly from the Add/Edit domain forms.
+- **Manual dates are never overwritten by RDAP refreshes**: the Refresh RDAP flow only updates RDAP metadata (registrar / nameservers / status), or clears it for `no-object` / parent results; a manual expiration date, registration date and provider survive every refresh.
+- **Registration platform presets**: validated, normalized provider URLs (GNAME, Alibaba Cloud, Tencent Cloud, Namecheap, Porkbun) with a `custom` fallback (HTTPS URL + display name), stored as `registration_provider` / `registration_provider_url`.
+- **Expiration reminders**: per-domain reminder days (integer days before expiry, 1–3650, presets + custom), stored in the new `expiration_reminders` table; the detail page shows the reminder list.
+- **`expiration_reminder` event type** (notification rule source `expiration`): the delivery worker's `evaluateExpirationReminders()` emits one deduplicated `expiration_reminder` event per domain per day once the reminder day arrives, flowing through the normal rule → delivery pipeline.
+- **Migration 0007**: `domains.expiration_source`, `domains.registration_provider`, `domains.registration_provider_url`, and the `expiration_reminders` table (unique `(domain_id, days_before)`).
+- **Worker summary field**: `runOnce` now also reports `expirationEvents` (count of reminder events emitted this tick).
+
+### Changed
+
+- Version bumped from v0.8.1 → **v0.8.2** (feature release).
+- Server-Action input handling: reminder days may be passed as numbers (client checkboxes) or numeric strings; both normalize identically.
+
+### Compatibility
+
+- Schema change requires **migration 0007** (additive: new nullable columns with a default, new table, new unique index). Existing rows keep `expiration_source = 'rdap'` and their current RDAP data.
+- The worker summary JSON gained the `expirationEvents` field (additive; existing consumers can ignore it).
+
+### Notes
+
+- **Automatic delivery is not yet enabled in production** (the `tsx` runtime required by the worker CLI is not installed there). The manual expiration / registration platform / reminder UI and rule configuration are fully live; reminder **delivery** activates once the worker runtime dependency is installed and `pnpm worker` is scheduled via cron.
+
 ## [v0.8.1] — 2026-08-18
 
 ### Fixed

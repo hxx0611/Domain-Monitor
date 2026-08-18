@@ -1,6 +1,6 @@
 # Domain-Monitor — Database
 
-> SQLite via better-sqlite3 + Drizzle ORM. Schema source: `src/db/schema.ts`. Migrations: `src/db/migrations/0000…0006`.
+> SQLite via better-sqlite3 + Drizzle ORM. Schema source: `src/db/schema.ts`. Migrations: `src/db/migrations/0000…0007`.
 
 ## Locations
 
@@ -31,6 +31,12 @@
 - When a subdomain has no independent RDAP object (e.g. `opusai.eu.cc` → 404), the registered-domain fallback resolves the parent (`eu.cc`) with `ownership = parent`. Parent-derived data is **never** written to the child's fields: the child's RDAP fields are cleared (NULL / `[]`) and `rdap_status` is set to `["no-object"]`. The child's registration info is not invented; the UI shows `Unavailable`.
 - No schema or migration change was needed for V0.8.1 (`updateDomainRdap(id, data, ownership)` requires an explicit ownership argument).
 
+## Manual expiration & reminders (V0.8.2)
+
+- `domains.expiration_source` — `'rdap'` (default; automatic RDAP data) or `'manual'` (dates/provider entered by hand). Manual source is a UI-level guarantee: RDAP refreshes never overwrite `registration_date` / `expiration_date` / `registration_provider` / `registration_provider_url` for a manual-source domain (refresh only updates RDAP metadata, or clears it for `no-object` / parent results).
+- `domains.registration_provider` / `domains.registration_provider_url` — validated provider preset key (e.g. `gname`) or `custom` + HTTPS URL, displayed as a link on the detail page.
+- `expiration_reminders` — per-domain reminder days: `(id, domain_id FK→domains CASCADE, days_before, created_at)` with UNIQUE `(domain_id, days_before)`. Used by `evaluateExpirationReminders()` (worker) to emit `expiration_reminder` events.
+
 ## Migration history
 
 - `0000` — domains table (+ unique hostname index)
@@ -40,7 +46,8 @@
 - `0004` — notification_channels + notification_rules (+ indexes)
 - `0005` — notification_events + notification_deliveries (+ unique index on dedup_key and on (event_id, channel_id))
 - `0006` — `admin_settings` + `notification_secrets` (+ unique index on (channel_id, key)) — pure CREATE, non-destructive
-- Journal: `__drizzle_migrations` (7 rows). Migrations are plain SQLite DDL — D1-compatible if ever needed.
+- `0007` — V0.8.2: `domains.expiration_source` (NOT NULL DEFAULT 'rdap'), `domains.registration_provider`, `domains.registration_provider_url`, `expiration_reminders` table + unique index — additive, non-destructive
+- Journal: `__drizzle_migrations` (8 rows). Migrations are plain SQLite DDL — D1-compatible if ever needed.
 
 ## Connection & transaction semantics
 
@@ -57,6 +64,7 @@
 ## Important indexes
 
 - `domains_hostname_unique` (UNIQUE)
+- `expiration_reminders_domain_days_unique` (UNIQUE(domain_id, days_before))
 - `dns_snapshots_domain_id_idx`, `dns_records_snapshot_id_idx`
 - `ssl_snapshots_domain_id_idx`, `ssl_certificates_snapshot_id_idx`
 - `http_snapshots_domain_id_idx`
@@ -71,13 +79,13 @@
 
 ## Backup / recovery
 
-- **Current container (as of v0.8.1)**: the production DB lives at `/tmp/domain-monitor/data/domain-monitor.db`. The legacy local-backup script (`/usr/local/bin/domain-monitor-backup`) and its cron entry documented in earlier handovers are **not present** in this container; the pre-deployment backup taken during Phase 9J is kept next to the DB as `domain-monitor.db.9J-backup-20260818-044056` (mode 600, integrity verified). A Phase 10E pre-repair backup is kept at `/tmp/domain-monitor-10E-backup-2026-08-18T12-47-09-880Z.db` (mode 600, integrity verified). Re-establishing scheduled backups is an operator decision outside the release scope.
+- **Current container (as of v0.8.2)**: the production DB lives at `/tmp/domain-monitor/data/domain-monitor.db`. The legacy local-backup script (`/usr/local/bin/domain-monitor-backup`) and its cron entry documented in earlier handovers are **not present** in this container; the pre-deployment backup taken during Phase 9J is kept next to the DB as `domain-monitor.db.9J-backup-20260818-044056` (mode 600, integrity verified). A Phase 10E pre-repair backup is kept at `/tmp/domain-monitor-10E-backup-2026-08-18T12-47-09-880Z.db` (mode 600, integrity verified). A Phase 11A pre-deploy backup is kept at `/tmp/domain-monitor-11A-backup-2026-08-18T16-20-15-021539291Z.db` (mode 600, integrity verified). Re-establishing scheduled backups is an operator decision outside the release scope.
 - Off-site: Cloudflare R2 `domain-monitor-backups/daily/` via rclone (keep 30) — implemented & verified 2026-08-16 in the original deployment.
 - Restore procedure: see `DISASTER_RECOVERY.md` — always restore to a temp path first, verify integrity, then explicit target.
 
 ## Production DB handling (current state)
 
-- Contains 2 monitored domains: `chatgpt.com`, `opusai.eu.cc` (added via the public UI during production setup; `example.com` was removed by the operator). As of v0.8.1 (Phase 10E data repair): `chatgpt.com` keeps its own exact RDAP data (expiration `2026-11-30`), while `opusai.eu.cc` has no independent RDAP object → its RDAP fields are NULL/`[]` and `rdap_status = ["no-object"]`; the UI shows `Unavailable`.
+- Contains 2 monitored domains: `chatgpt.com`, `opusai.eu.cc` (added via the public UI during production setup; `example.com` was removed by the operator). As of v0.8.1 (Phase 10E data repair): `chatgpt.com` keeps its own exact RDAP data (expiration `2026-11-30`), while `opusai.eu.cc` has no independent RDAP object → its RDAP fields are NULL/`[]` and `rdap_status = ["no-object"]`; the UI shows `Unavailable`. As of **v0.8.2 (Phase 11A)**: both domains keep `expiration_source = 'rdap'` (migration 0007 applied in production during the v0.8.2 deploy; `expiration_reminders` empty — no manual reminders configured yet).
 - 1 Telegram channel (encrypted token in `notification_secrets`), 4 notification rules (chatgpt.com HTTP/SSL + opusai.eu.cc HTTP/SSL → Telegram). `notification_events` / `notification_deliveries` are empty — no real sends ever happened.
 - `admin_settings` has 1 row (admin initialized); `notification_secrets` has 1 row (encrypted bot token).
 - Never treat `/tmp/dm-e2e.db` (Phase 5 test DB) or any `/tmp` scratch DB as production.
