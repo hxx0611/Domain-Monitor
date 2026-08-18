@@ -18,6 +18,7 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   URL: "notifications.field.url",
   "Secret ref": "notifications.field.secretRef",
   "Chat ID": "notifications.field.chatId",
+  "Legacy token": "notifications.field.legacyToken",
 };
 
 /**

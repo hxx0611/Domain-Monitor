@@ -11,6 +11,8 @@ import { CheckDnsButton } from "@/components/check-dns-button";
 import { CheckSslButton } from "@/components/check-ssl-button";
 import { CheckHttpButton } from "@/components/check-http-button";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { LogoutButton } from "@/components/auth/logout-button";
+import { requirePageAccess } from "@/lib/auth/admin";
 import { getDnsSnapshots, getLatestDnsSnapshot } from "@/lib/dns/repository";
 import { diffDnsSnapshots } from "@/lib/dns";
 import { DNS_RECORD_TYPES, type DnsRecord } from "@/lib/dns";
@@ -135,6 +137,7 @@ function HttpStatusBadge({ status, dict }: { status: HttpStatus; dict: Dictionar
 }
 
 export default async function DomainDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePageAccess();
   const { id } = await params;
   const domainId = Number(id);
 
@@ -170,7 +173,10 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 hover:underline">
           {lookup(dict, "nav.backToDashboard")}
         </Link>
-        <LanguageSwitcher locale={locale} />
+        <div className="flex items-center gap-3">
+          <LanguageSwitcher locale={locale} />
+          <LogoutButton label={dict.auth.logout} />
+        </div>
       </nav>
 
       <header className="mb-8">

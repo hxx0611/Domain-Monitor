@@ -1,6 +1,8 @@
 # Domain-Monitor — Operations Runbook
 
-> Operational procedures for the production deployment (container, supervisor-managed). No credentials here.
+> Operational procedures for the production deployment. No credentials here.
+>
+> ⚠️ **As of v0.8.0 (Phase 9J redeploy, 2026-08-18) this runbook describes the ORIGINAL deployment only.** In the current container the app is started by the **container entrypoint** (not supervisor-managed), the production DB is `/tmp/domain-monitor/data/domain-monitor.db`, and the scheduled backup script/cron is **not present**. See `docs/PROJECT_HANDOVER.md`, `docs/DATABASE.md`, and `docs/DISASTER_RECOVERY.md` for the current facts; keep this file for reference to the original supervisor-based setup.
 
 ## Status
 
@@ -20,6 +22,7 @@ supervisorctl restart cloudflared-domain-monitor
 ```
 
 After restart, verify:
+
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/
 curl -s -o /dev/null -w "%{http_code}\n" https://domain-monitor.snooze.eu.cc/
@@ -28,14 +31,14 @@ curl -s -o /dev/null -w "%{http_code}\n" https://domain-monitor.snooze.eu.cc/not
 
 ## Logs
 
-| Log | Content |
-|---|---|
-| `/var/log/domain-monitor.log` | app stdout (next server) |
-| `/var/log/domain-monitor-error.log` | app stderr — **monitoring raw errors live here** (`[dns]/[ssl]/[http] check failed …`) |
-| `/var/log/cloudflared-domain-monitor.log` | tunnel stdout |
-| `/var/log/cloudflared-domain-monitor-error.log` | tunnel stderr |
-| `/var/log/domain-monitor-backup.log` | backup successes |
-| `/var/log/domain-monitor-backup-error.log` | backup/R2 failures |
+| Log                                             | Content                                                                                |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `/var/log/domain-monitor.log`                   | app stdout (next server)                                                               |
+| `/var/log/domain-monitor-error.log`             | app stderr — **monitoring raw errors live here** (`[dns]/[ssl]/[http] check failed …`) |
+| `/var/log/cloudflared-domain-monitor.log`       | tunnel stdout                                                                          |
+| `/var/log/cloudflared-domain-monitor-error.log` | tunnel stderr                                                                          |
+| `/var/log/domain-monitor-backup.log`            | backup successes                                                                       |
+| `/var/log/domain-monitor-backup-error.log`      | backup/R2 failures                                                                     |
 
 Tail: `tail -f /var/log/domain-monitor-error.log`
 
@@ -52,6 +55,7 @@ Tail: `tail -f /var/log/domain-monitor-error.log`
 ls /workspace/domain-monitor-backups/    # local: keep 14
 rclone lsl r2:domain-monitor-backups/daily/   # off-site: keep 30
 ```
+
 Cron: `/etc/cron.d/domain-monitor-backup` → `30 3 * * * root /usr/local/bin/domain-monitor-backup`.
 
 ## Restore
@@ -60,14 +64,14 @@ See `DISASTER_RECOVERY.md`. Golden rule: restore to a **temp path** first, `PRAG
 
 ## Failure diagnosis
 
-| Symptom | Check |
-|---|---|
-| Public site down, local 200 | `cloudflared tunnel info domain-monitor` (connectors); `tail /var/log/cloudflared-domain-monitor-error.log` |
-| Local 3000 down | `supervisorctl status domain-monitor`; `tail /var/log/domain-monitor-error.log` |
-| "…monitoring unavailable." on a domain | Read the `[dns]/[ssl]/[http] check failed` line in `/var/log/domain-monitor-error.log`; map to error code via `docs/MONITORING.md` |
-| Domain fails with `ssl_dns_failed` / `http_dns_failed` | Domain does not resolve (public DNS) — check `dig`/DoH for the hostname |
-| 502/503 from Cloudflare | Origin unreachable: local 3000 down or cloudflared connector lost |
-| Backup failing | `tail /var/log/domain-monitor-backup-error.log` |
+| Symptom                                                | Check                                                                                                                              |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Public site down, local 200                            | `cloudflared tunnel info domain-monitor` (connectors); `tail /var/log/cloudflared-domain-monitor-error.log`                        |
+| Local 3000 down                                        | `supervisorctl status domain-monitor`; `tail /var/log/domain-monitor-error.log`                                                    |
+| "…monitoring unavailable." on a domain                 | Read the `[dns]/[ssl]/[http] check failed` line in `/var/log/domain-monitor-error.log`; map to error code via `docs/MONITORING.md` |
+| Domain fails with `ssl_dns_failed` / `http_dns_failed` | Domain does not resolve (public DNS) — check `dig`/DoH for the hostname                                                            |
+| 502/503 from Cloudflare                                | Origin unreachable: local 3000 down or cloudflared connector lost                                                                  |
+| Backup failing                                         | `tail /var/log/domain-monitor-backup-error.log`                                                                                    |
 
 ## Common problems & invariants
 

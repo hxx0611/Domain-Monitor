@@ -3,13 +3,16 @@ import { getDomains } from "@/lib/domains";
 import { formatDate } from "@/lib/format";
 import { getDictionary, getLocale } from "@/lib/i18n";
 import { interpolate } from "@/lib/i18n/config";
+import { requirePageAccess } from "@/lib/auth/admin";
 import { AddDomainForm } from "@/components/add-domain-form";
 import { DeleteDomainButton } from "@/components/delete-domain-button";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { LogoutButton } from "@/components/auth/logout-button";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  await requirePageAccess();
   const domains = getDomains();
   const locale = await getLocale();
   const dict = getDictionary(locale);
@@ -29,6 +32,7 @@ export default async function Home() {
             {dict.nav.notifications}
           </Link>
           <LanguageSwitcher locale={locale} />
+          <LogoutButton label={dict.auth.logout} />
         </div>
       </header>
 

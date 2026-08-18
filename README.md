@@ -11,11 +11,14 @@
 Keep your domains under control: track registration data, detect DNS and SSL changes, catch HTTP failures — and get notified when something changes.
 
 - **Event-driven notifications** — changes become events, events become notifications
-- **Webhook / Email** delivery to your existing tools
+- **Telegram / Webhook / Email** delivery to your tools
 - **Delivery Worker** — one-shot CLI, schedule with cron, no daemon
+- **Admin authentication** — setup wizard, login, one-time recovery code
 - **English / 简体中文** UI
 
 ![Dashboard](docs/screenshots/dashboard-en.png)
+
+> Screenshots reflect an earlier release; the current UI adds admin authentication and Telegram channels.
 
 ## Why Domain-Monitor?
 
@@ -26,7 +29,7 @@ A domain is never just "up or down". The interesting questions are the changes i
 - **HTTP failures / recovery** — downtime, status changes, redirect drift
 - **Registration information** — registrar, expiry, nameservers, RDAP status
 
-Domain Monitor turns those changes into **events**, matches them against your **rules**, and delivers them as **notifications** — so you find out when something *changes*, not when it breaks.
+Domain Monitor turns those changes into **events**, matches them against your **rules**, and delivers them as **notifications** — so you find out when something _changes_, not when it breaks.
 
 ## Quick Start
 
@@ -75,9 +78,17 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 ### Notifications
 
 - Domain lifecycle events from DNS / SSL / HTTP checks
-- Channels: **Email API** and **Webhook**
-- Rule-based delivery matching (global or per-domain rules)
+- Channels: **Telegram**, **Email API**, and **Webhook**
+- Rule-based delivery matching (global or per-domain rules, by source / event type)
+- Notification configuration UI — channel CRUD (create / edit / toggle / delete), rule CRUD
+- Telegram bot tokens validated via `getMe` (server-side) and stored **AES-256-GCM encrypted** (`ENCRYPTION_KEY`), with legacy `TELEGRAM_BOT_TOKEN` env fallback
 - Delivery history with status tracking (pending / sending / sent / failed) and manual retry
+
+### Admin Authentication
+
+- One-time **setup wizard** (`/setup`) — creates the admin password (scrypt-hashed) and a one-time **recovery code**
+- **HMAC-signed session cookie** — login / logout, protected pages and Server Actions
+- Password recovery rotates the session secret, invalidating all old sessions
 
 ### Delivery Worker
 
@@ -100,7 +111,7 @@ flowchart LR
     B --> C[Rule Matching]
     C --> D[Delivery Queue]
     D --> E[Worker / Cron]
-    E --> F[Webhook / Email]
+    E --> F[Telegram / Webhook / Email]
 ```
 
 A check writes its snapshot, its events, and the matching pending deliveries in **one transaction**. The delivery worker claims pending deliveries (atomic CAS) and calls the senders. Retrying a failed delivery from the UI works end-to-end.
@@ -109,21 +120,23 @@ A check writes its snapshot, its events, and the matching pending deliveries in 
 
 ## Security by Design
 
+- **Admin authentication** — protected pages and Server Actions; scrypt password hashing; signed session cookies; recovery-code rotation invalidates old sessions
+- **Encrypted secret storage** — Telegram bot tokens are stored **AES-256-GCM encrypted** (`iv:tag:ciphertext`, keyed by `ENCRYPTION_KEY`); tokens are never rendered back into HTML/RSC/client bundles — only CONFIGURED/NOT CONFIGURED status is exposed
 - **SSRF protection** — outbound requests are HTTPS-only, with per-redirect re-validation
 - **HTTPS-only** outbound traffic, **redirect re-validation** on every hop
-- **Secret isolation** — API keys / webhook secrets are stored as references, never exposed in the UI, worker output, or client bundle
+- **Secret isolation** — API keys / webhook secrets / bot tokens never appear in the UI, worker output, or client bundle
 - **at-least-once** delivery with stable `eventId` + `deliveryId` for receiver-side deduplication
 
 ## Built for Reliability
 
-- **488 tests** covering services, state machines, senders, the delivery worker, and the i18n core
+- **687 tests** covering services, state machines, senders, the delivery worker, the i18n core, and admin authentication
 - **SSRF-guarded** webhook and email senders
 - **SQLite concurrency tested** — atomic claim (CAS) + `busy_timeout = 5000`
 - **Self-hosted** — your data stays on your machine
 
 ## Current Status
 
-**Current release: v0.7.1 — Bilingual UI / Simplified Chinese Support**
+**Current release: v0.8.0 — Admin Authentication, Telegram Notifications & Encrypted Secrets**
 
 Supported today:
 
@@ -132,8 +145,11 @@ Supported today:
 - DNS monitoring
 - SSL certificate monitoring
 - HTTP health checks
-- Notification system (email / webhook channels, rules, delivery history, manual retry)
+- Notification system (telegram / email / webhook channels, rules, delivery history, manual retry)
+- Notification configuration UI (channel & rule CRUD, Telegram token setup with `getMe` verification)
 - Delivery worker (automatic Event → Delivery → Send pipeline, one-shot CLI + external cron)
+- Admin authentication (setup wizard, login/logout, recovery code, protected pages)
+- Encrypted secret storage (AES-256-GCM, `ENCRYPTION_KEY`, legacy env fallback)
 - Bilingual UI (English / 简体中文, cookie-based locale switching)
 
 DNS, SSL and HTTP checks are currently manual; automatic scheduling is planned for a future release.
@@ -201,7 +217,7 @@ Recommended: the CLI worker plus an external scheduler (system cron or equivalen
 pnpm test
 ```
 
-Current test suite: **488 tests**, covering domain validation, RDAP parsing, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine, SSRF-guarded webhook and email senders, automatic Event → Delivery generation, the delivery worker, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
+Current test suite: **687 tests (44 files)**, covering domain validation, RDAP parsing, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine, SSRF-guarded webhook and email senders, automatic Event → Delivery generation, the delivery worker, admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
 
 Also run before pushing changes:
 
@@ -251,6 +267,9 @@ pnpm db:studio     # Open the visual database browser
 - [x] **V0.5** — HTTP health checks
 - [x] **V0.6** — Notification system
 - [x] **V0.7** — Notification delivery worker
+- [x] **V0.7.1** — Bilingual UI
+- [x] **V0.7.3** — Monitoring error clarity
+- [x] **V0.8.0** — Admin authentication, Telegram notifications & encrypted secrets
 
 ## Contributing
 

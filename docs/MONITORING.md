@@ -27,26 +27,26 @@
 
 ## V0.7.3 monitoring error codes (machine values, snake_case, module-prefixed)
 
-| Module | Code | Meaning (user-facing gist) |
-|---|---|---|
-| DNS | `dns_timeout` | DoH query timed out |
-| DNS | `dns_network` | Could not reach the DNS service (incl. DoH HTTP errors) |
-| DNS | `dns_invalid_response` | DNS service returned invalid data |
-| DNS | `dns_resolver_error` | Resolver reported an error (SERVFAIL/REFUSED…) |
-| DNS | `dns_unknown` | Unclassified failure |
-| SSL | `ssl_timeout` | TLS handshake timed out |
-| SSL | `ssl_network` | Connection-level network failure |
-| SSL | `ssl_dns_failed` | **ENOTFOUND / EAI_AGAIN** — domain does not resolve |
-| SSL | `ssl_handshake` | TLS handshake failed |
-| SSL | `ssl_no_tls_service` | Nothing listening on 443 (ECONNREFUSED) |
-| SSL | `ssl_invalid_cert` | Peer certificate could not be parsed |
-| SSL | `ssl_unknown` | Unclassified failure |
-| HTTP | `http_dns_failed` | DNS resolution failed |
-| HTTP | `http_timeout` | Request timed out |
-| HTTP | `http_network` | Connection failed |
-| HTTP | `http_blocked_redirect` | Redirect/address blocked by SSRF safety checks (**code only — never the raw IP**) |
-| HTTP | `http_too_many_redirects` | Redirect limit exceeded |
-| HTTP | `http_unknown` | Unclassified failure |
+| Module | Code                      | Meaning (user-facing gist)                                                        |
+| ------ | ------------------------- | --------------------------------------------------------------------------------- |
+| DNS    | `dns_timeout`             | DoH query timed out                                                               |
+| DNS    | `dns_network`             | Could not reach the DNS service (incl. DoH HTTP errors)                           |
+| DNS    | `dns_invalid_response`    | DNS service returned invalid data                                                 |
+| DNS    | `dns_resolver_error`      | Resolver reported an error (SERVFAIL/REFUSED…)                                    |
+| DNS    | `dns_unknown`             | Unclassified failure                                                              |
+| SSL    | `ssl_timeout`             | TLS handshake timed out                                                           |
+| SSL    | `ssl_network`             | Connection-level network failure                                                  |
+| SSL    | `ssl_dns_failed`          | **ENOTFOUND / EAI_AGAIN** — domain does not resolve                               |
+| SSL    | `ssl_handshake`           | TLS handshake failed                                                              |
+| SSL    | `ssl_no_tls_service`      | Nothing listening on 443 (ECONNREFUSED)                                           |
+| SSL    | `ssl_invalid_cert`        | Peer certificate could not be parsed                                              |
+| SSL    | `ssl_unknown`             | Unclassified failure                                                              |
+| HTTP   | `http_dns_failed`         | DNS resolution failed                                                             |
+| HTTP   | `http_timeout`            | Request timed out                                                                 |
+| HTTP   | `http_network`            | Connection failed                                                                 |
+| HTTP   | `http_blocked_redirect`   | Redirect/address blocked by SSRF safety checks (**code only — never the raw IP**) |
+| HTTP   | `http_too_many_redirects` | Redirect limit exceeded                                                           |
+| HTTP   | `http_unknown`            | Unclassified failure                                                              |
 
 **Mapping**: `src/lib/monitoring/error-classifier.ts` (pure functions `classifyDnsError/classifySslError/classifyHttpError`). Anything that is not a recognized client error → `*_unknown`. Legacy DB values (old English sentences) are not codes → UI falls back to the generic per-module unavailable message.
 

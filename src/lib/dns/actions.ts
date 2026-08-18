@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { checkDns } from "./service";
 import type { DnsChange } from "./types";
 import type { DnsErrorCode } from "@/lib/monitoring/error-classifier";
+import { requireAdmin } from "@/lib/auth/admin";
 
 export type DnsActionResult =
   | { ok: true; snapshotId: number; checkedAt: Date; changes: DnsChange[] }
@@ -18,6 +19,9 @@ export type DnsActionResult =
  * messages; details go to the server log.
  */
 export async function checkDnsAction(domainId: number): Promise<DnsActionResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   const result = await checkDns(domainId);
 
   if (!result.ok) {

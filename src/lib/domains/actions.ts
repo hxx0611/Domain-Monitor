@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createDomain, deleteDomain, getDomainById, updateDomainRdap } from "./repository";
 import { normalizeHostname } from "./validation";
 import { queryRdap } from "@/lib/rdap";
+import { requireAdmin } from "@/lib/auth/admin";
 
 export type DomainActionResult = { ok: true; hostname: string } | { ok: false; error: string };
 
+const UNAUTHORIZED_ERROR = "unauthorized";
 const RDAP_UNAVAILABLE_MESSAGE = "RDAP information is currently unavailable.";
 
 /**
@@ -17,6 +19,9 @@ const RDAP_UNAVAILABLE_MESSAGE = "RDAP information is currently unavailable.";
  * must never prevent the domain from being created.
  */
 export async function createDomainAction(input: string): Promise<DomainActionResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: UNAUTHORIZED_ERROR };
+  }
   const result = normalizeHostname(input);
 
   if (!result.ok) {
@@ -54,6 +59,9 @@ export async function createDomainAction(input: string): Promise<DomainActionRes
  * Returns a user-safe error message on failure (details go to server logs).
  */
 export async function refreshRdapAction(id: number): Promise<DomainActionResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: UNAUTHORIZED_ERROR };
+  }
   const domain = getDomainById(id);
 
   if (!domain) {
@@ -74,6 +82,9 @@ export async function refreshRdapAction(id: number): Promise<DomainActionResult>
 }
 
 export async function deleteDomainAction(id: number): Promise<DomainActionResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: UNAUTHORIZED_ERROR };
+  }
   try {
     const deleted = deleteDomain(id);
 

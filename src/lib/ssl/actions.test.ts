@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { checkSslAction } from "./actions";
 import { checkSsl } from "./service";
+import { requireAdmin } from "@/lib/auth/admin";
 import type { SslChange } from "./types";
 
 vi.mock("./service", () => ({
@@ -11,10 +12,15 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
+vi.mock("@/lib/auth/admin", () => ({
+  requireAdmin: vi.fn(),
+}));
+
 import { revalidatePath } from "next/cache";
 
 const mockedCheckSsl = vi.mocked(checkSsl);
 const mockedRevalidatePath = vi.mocked(revalidatePath);
+const mockedRequireAdmin = vi.mocked(requireAdmin);
 
 const CHANGE: SslChange = {
   type: "CERT_REPLACED",
@@ -23,6 +29,19 @@ const CHANGE: SslChange = {
 };
 
 describe("checkSslAction", () => {
+  beforeEach(() => {
+    mockedRequireAdmin.mockResolvedValue(true);
+  });
+
+  it("returns Unauthorized without touching the service when not an admin", async () => {
+    mockedRequireAdmin.mockResolvedValue(false);
+
+    const result = await checkSslAction(7);
+
+    expect(result).toEqual({ ok: false, error: "unauthorized" });
+    expect(mockedCheckSsl).not.toHaveBeenCalled();
+    expect(mockedRevalidatePath).not.toHaveBeenCalled();
+  });
   it("returns the mapped result and revalidates on success", async () => {
     mockedCheckSsl.mockResolvedValue({
       ok: true,

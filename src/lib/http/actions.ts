@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { checkHttp } from "./service";
 import type { HttpErrorCode } from "@/lib/monitoring/error-classifier";
+import { requireAdmin } from "@/lib/auth/admin";
 
 export type HttpActionResult =
   | { ok: true; snapshotId: number; checkedAt: Date }
@@ -21,6 +22,9 @@ export type HttpActionResult =
  * messages; details go to the server log.
  */
 export async function checkHttpAction(domainId: number): Promise<HttpActionResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   const result = await checkHttp(domainId);
 
   if (!result.ok) {

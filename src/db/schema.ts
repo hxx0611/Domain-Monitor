@@ -294,6 +294,70 @@ export const notificationDeliveries = sqliteTable(
   ],
 );
 
+/**
+ * Admin authentication (V0.8 Phase 9E).
+ *
+ * Single-row settings for the setup wizard + login:
+ * - `passwordHash` — scrypt hash of the admin password (set once in setup).
+ * - `recoveryCodeHash` — scrypt hash of the one-time recovery code shown
+ *   during setup; lets a lost password be reset without the old one.
+ * - `sessionSecret` — HMAC key for signing session cookies. Auto-generated
+ *   at setup; can be overridden with the SESSION_SECRET env var.
+ * - `encryptionKey` — AES-256-GCM key (32 random bytes, hex) for encrypting
+ *   stored secrets. Auto-generated at setup; can be overridden with the
+ *   ENCRYPTION_KEY env var (recommended in production so DB theft alone
+ *   cannot decrypt stored secrets).
+ *
+ * The row is created lazily on first use (setup); there is never more than
+ * one row.
+ */
+export const adminSettings = sqliteTable("admin_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  passwordHash: text("password_hash"),
+  recoveryCodeHash: text("recovery_code_hash"),
+  sessionSecret: text("session_secret"),
+  encryptionKey: text("encryption_key"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+/**
+ * Encrypted notification secrets (V0.8 Phase 9F).
+ *
+ * Bot tokens / API keys typed into the UI are encrypted (AES-256-GCM) and
+ * stored here — NEVER in channel config JSON, payloads, logs, or plaintext
+ * anywhere. `key` is a logical name scoped to the channel (e.g. "token");
+ * `encryptedValue` is "iv:tag:ciphertext" (base64 segments).
+ *
+ * Deleting a channel cascades to its secrets.
+ */
+export const notificationSecrets = sqliteTable(
+  "notification_secrets",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    channelId: integer("channel_id")
+      .notNull()
+      .references(() => notificationChannels.id, { onDelete: "cascade" }),
+    /** Logical secret name within the channel, e.g. "token". */
+    key: text("key").notNull(),
+    /** AES-256-GCM "iv:tag:ciphertext" (base64). */
+    encryptedValue: text("encrypted_value").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("notification_secrets_channel_key_unique").on(table.channelId, table.key),
+  ],
+);
+
 export type NotificationChannel = InferSelectModel<typeof notificationChannels>;
 export type NewNotificationChannel = InferInsertModel<typeof notificationChannels>;
 export type NotificationRule = InferSelectModel<typeof notificationRules>;
@@ -302,6 +366,10 @@ export type NotificationEventRow = InferSelectModel<typeof notificationEvents>;
 export type NewNotificationEvent = InferInsertModel<typeof notificationEvents>;
 export type NotificationDelivery = InferSelectModel<typeof notificationDeliveries>;
 export type NewNotificationDelivery = InferInsertModel<typeof notificationDeliveries>;
+export type AdminSettingsRow = InferSelectModel<typeof adminSettings>;
+export type NewAdminSettings = InferInsertModel<typeof adminSettings>;
+export type NotificationSecretRow = InferSelectModel<typeof notificationSecrets>;
+export type NewNotificationSecret = InferInsertModel<typeof notificationSecrets>;
 
 export const schema = {
   domains,
@@ -314,6 +382,8 @@ export const schema = {
   notificationRules,
   notificationEvents,
   notificationDeliveries,
+  adminSettings,
+  notificationSecrets,
 };
 
 export type Schema = typeof schema;

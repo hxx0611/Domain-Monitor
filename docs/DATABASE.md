@@ -1,27 +1,29 @@
 # Domain-Monitor — Database
 
-> SQLite via better-sqlite3 + Drizzle ORM. Schema source: `src/db/schema.ts`. Migrations: `src/db/migrations/0000…0005`.
+> SQLite via better-sqlite3 + Drizzle ORM. Schema source: `src/db/schema.ts`. Migrations: `src/db/migrations/0000…0006`.
 
 ## Locations
 
 - Dev default: `./data/domain-monitor.db` (inside repo, git-ignored state)
-- **Production: `/workspace/domain-monitor-data/domain-monitor.db`** (mode 600, outside the repo)
-- Override via `DATABASE_URL` env (supervisor sets it for production).
+- **Production: `/tmp/domain-monitor/data/domain-monitor.db`** (mode 600, outside the repo; set by `DATABASE_URL`)
+- Override via `DATABASE_URL` env (the production entrypoint sets it).
 
-## Tables (10) & relationships
+## Tables (12) & relationships
 
-| Table | Key columns | Relationships |
-|---|---|---|
-| `domains` | id PK, hostname UNIQUE, status, created/updated_at, RDAP fields (registrar, dates, nameservers JSON, rdap_status JSON, rdap_updated_at) | parent of everything below (cascade delete) |
-| `dns_snapshots` | id PK, domain_id FK, checked_at | 1:N per domain |
-| `dns_records` | id PK, snapshot_id FK, type, name, value, priority (MX), ttl | N:1 snapshot |
-| `ssl_snapshots` | id PK, domain_id FK, checked_at, tls_version, cipher_name, status, error | 1:N per domain |
-| `ssl_certificates` | id PK, snapshot_id FK, fingerprint256, subject, issuer, valid_from/to, serial, san JSON, is_self_signed, hostname_matched | 1:1 snapshot |
-| `http_snapshots` | id PK, domain_id FK, checked_at, status, http_status, response_time_ms, redirected, redirect_count, final_url, error | 1:N per domain |
-| `notification_channels` | id PK, type (email/webhook), name, config JSON, enabled | — |
-| `notification_rules` | id PK, channel_id FK, source, event_type, domain_id FK, enabled | N:1 channel |
-| `notification_events` | id PK, domain_id FK, source, event_type, previous_state JSON, current_state JSON, dedup_key UNIQUE, occurred_at | — |
-| `notification_deliveries` | id PK, event_id FK, channel_id FK, status (pending/sending/sent/failed), attempts, error, claimed_at, delivered_at | UNIQUE(event_id, channel_id) |
+| Table                     | Key columns                                                                                                                             | Relationships                               |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `domains`                 | id PK, hostname UNIQUE, status, created/updated_at, RDAP fields (registrar, dates, nameservers JSON, rdap_status JSON, rdap_updated_at) | parent of everything below (cascade delete) |
+| `dns_snapshots`           | id PK, domain_id FK, checked_at                                                                                                         | 1:N per domain                              |
+| `dns_records`             | id PK, snapshot_id FK, type, name, value, priority (MX), ttl                                                                            | N:1 snapshot                                |
+| `ssl_snapshots`           | id PK, domain_id FK, checked_at, tls_version, cipher_name, status, error                                                                | 1:N per domain                              |
+| `ssl_certificates`        | id PK, snapshot_id FK, fingerprint256, subject, issuer, valid_from/to, serial, san JSON, is_self_signed, hostname_matched               | 1:1 snapshot                                |
+| `http_snapshots`          | id PK, domain_id FK, checked_at, status, http_status, response_time_ms, redirected, redirect_count, final_url, error                    | 1:N per domain                              |
+| `notification_channels`   | id PK, type (telegram/email/webhook), name, config JSON (non-secret only), enabled                                                      | —                                           |
+| `notification_rules`      | id PK, channel_id FK, source, event_type, domain_id FK, enabled                                                                         | N:1 channel                                 |
+| `notification_events`     | id PK, domain_id FK, source, event_type, previous_state JSON, current_state JSON, dedup_key UNIQUE, occurred_at                         | —                                           |
+| `notification_deliveries` | id PK, event_id FK, channel_id FK, status (pending/sending/sent/failed), attempts, error, claimed_at, delivered_at                      | UNIQUE(event_id, channel_id)                |
+| `admin_settings`          | id PK (singleton), password_hash, recovery_code_hash, session_secret, encryption_key, created_at, updated_at                            | 1 row — admin auth                          |
+| `notification_secrets`    | id PK, channel_id FK, key (e.g. `token`), encrypted_value, created_at, updated_at                                                       | UNIQUE(channel_id, key); encrypted at rest  |
 
 ## Migration history
 
@@ -31,13 +33,20 @@
 - `0003` — http_snapshots (+ index)
 - `0004` — notification_channels + notification_rules (+ indexes)
 - `0005` — notification_events + notification_deliveries (+ unique index on dedup_key and on (event_id, channel_id))
-- Journal: `__drizzle_migrations` (6 rows). Migrations are plain SQLite DDL — D1-compatible if ever needed.
+- `0006` — `admin_settings` + `notification_secrets` (+ unique index on (channel_id, key)) — pure CREATE, non-destructive
+- Journal: `__drizzle_migrations` (7 rows). Migrations are plain SQLite DDL — D1-compatible if ever needed.
 
 ## Connection & transaction semantics
 
 - `src/db/index.ts`: `mkdirSync(dirname(url), {recursive})` unless `:memory:`; `new Database(url)`; `pragma("foreign_keys = ON")`; `pragma("busy_timeout = 5000")` (dual-writer: next server + worker).
 - All multi-write operations are wrapped in a single drizzle transaction (`createDnsSnapshot`, `createSslSnapshot`, `createHttpSnapshot`, event insert + delivery generation) — atomic: snapshot + records + events commit or roll back together (verified by rollback tests).
 - `claimPendingDelivery` is an atomic CAS: `UPDATE … SET status='sending', attempts=attempts+1, claimed_at=now WHERE id=? AND status='pending' RETURNING id`.
+
+## Secret storage (V0.8)
+
+- `notification_secrets.encrypted_value` = AES-256-GCM ciphertext `iv:tag:ciphertext` (base64 segments) encrypted with `ENCRYPTION_KEY` (32-byte / 64 hex). No plaintext secrets are stored.
+- `admin_settings` stores only scrypt password hash + recovery code hash + session secret (for HMAC signing) — never plaintext.
+- Channel `config` JSON contains non-secret settings only (e.g. `chatId`).
 
 ## Important indexes
 
@@ -48,19 +57,21 @@
 - `notification_events_dedup_key_unique` (UNIQUE)
 - `notification_deliveries_event_channel_unique` (UNIQUE)
 - `notification_deliveries_event_id_idx`
+- `notification_secrets_channel_key_unique` (UNIQUE(channel_id, key))
 
 ## Foreign key behavior
 
-- FKs enforced (pragma ON). `ON DELETE CASCADE` from `domains` → snapshots/records, from snapshots → child rows, from events → deliveries. Deleting a domain removes all its monitoring data and notification history.
+- FKs enforced (pragma ON). `ON DELETE CASCADE` from `domains` → snapshots/records, from snapshots → child rows, from events → deliveries, from `notification_channels` → `notification_secrets` (and deliveries). Deleting a domain removes all its monitoring data and notification history; deleting a channel removes its stored secrets.
 
 ## Backup / recovery
 
-- Local: `/workspace/domain-monitor-backups/` — `sqlite3 .backup` + `integrity_check` + atomic mv, keep 14 (script `/usr/local/bin/domain-monitor-backup`, cron 03:30).
-- Off-site: Cloudflare R2 `domain-monitor-backups/daily/` via rclone (keep 30) — implemented & verified 2026-08-16.
+- **Current container (as of v0.8.0)**: the production DB lives at `/tmp/domain-monitor/data/domain-monitor.db`. The legacy local-backup script (`/usr/local/bin/domain-monitor-backup`) and its cron entry documented in earlier handovers are **not present** in this container; the pre-deployment backup taken during Phase 9J is kept next to the DB as `domain-monitor.db.9J-backup-20260818-044056` (mode 600, integrity verified). Re-establishing scheduled backups is an operator decision outside the release scope.
+- Off-site: Cloudflare R2 `domain-monitor-backups/daily/` via rclone (keep 30) — implemented & verified 2026-08-16 in the original deployment.
 - Restore procedure: see `DISASTER_RECOVERY.md` — always restore to a temp path first, verify integrity, then explicit target.
 
 ## Production DB handling (current state)
 
-- Contains 2 verification domains: `opusai.eu.cc`, `apitoken.indevs.in` (added via the public UI during production E2E; user has not yet decided whether to keep them).
-- No notification channels/rules configured → no real webhook/email sends possible.
-- Never treat `/tmp/dm-e2e.db` (Phase 5 test DB) or any `/tmp` DB as production.
+- Contains 2 monitored domains: `chatgpt.com`, `opusai.eu.cc` (added via the public UI during production setup; `example.com` was removed by the operator).
+- 1 Telegram channel (encrypted token in `notification_secrets`), 4 notification rules (chatgpt.com HTTP/SSL + opusai.eu.cc HTTP/SSL → Telegram). `notification_events` / `notification_deliveries` are empty — no real sends ever happened.
+- `admin_settings` has 1 row (admin initialized); `notification_secrets` has 1 row (encrypted bot token).
+- Never treat `/tmp/dm-e2e.db` (Phase 5 test DB) or any `/tmp` scratch DB as production.

@@ -1,18 +1,26 @@
 /**
- * Shared sender factory (V0.7).
+ * Shared sender factory (V0.7 → Phase 9H).
  *
  * channel.type → DeliverySender, the single mapping used by both the
  * notification UI server actions and the delivery worker. Sender
- * implementations are unchanged — this file only picks an instance.
+ * implementations are unchanged — this file only picks an instance and
+ * wires the production dependencies.
+ *
+ * Phase 9H: the Telegram sender receives the real `resolveSecret`
+ * (notification_secrets via the 9F repository). `getChannelSecret`
+ * decrypts with AES-256-GCM and THROWS on decryption failure — the sender
+ * surfaces that as a controlled error instead of masking it or falling
+ * back to env.
  */
 
 import type { ChannelType, DeliverySender } from "../types";
 import { EmailSender } from "./email";
 import { WebhookSender } from "./webhook";
 import { TelegramSender } from "./telegram";
+import { getChannelSecret } from "../secrets";
 import { getDomainById } from "@/lib/domains";
 
-/** Instantiate the sender for a channel type. Email/webhook (V0.6+) / telegram (V0.7.x). */
+/** Instantiate the sender for a channel type. Email/webhook (V0.6+) / telegram (V0.7.x+9H). */
 export function createSender(type: ChannelType): DeliverySender {
   switch (type) {
     case "email":
@@ -22,6 +30,9 @@ export function createSender(type: ChannelType): DeliverySender {
     case "telegram":
       return new TelegramSender({
         resolveDomain: (domainId) => getDomainById(domainId)?.hostname,
+        // Phase 9H priority A: encrypted notification_secrets token; the
+        // sender falls back to legacy env (config.secretRef) when null.
+        resolveSecret: (channelId, key) => Promise.resolve(getChannelSecret(channelId, key)),
       });
   }
 }

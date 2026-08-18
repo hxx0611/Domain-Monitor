@@ -24,9 +24,17 @@ import {
 import { deliverDelivery } from "./service";
 import { parseWebhookConfig, validateWebhookUrl, defaultLookup } from "./senders/webhook";
 import { parseEmailConfig } from "./senders/email";
-import { parseTelegramConfig, isValidTelegramChatId } from "./senders/telegram";
+import {
+  parseTelegramConfig,
+  isValidTelegramChatId,
+  fetchTelegramBotInfo,
+  TelegramError,
+  isValidTelegramBotToken,
+} from "./senders/telegram";
+import { hasChannelSecret, setChannelSecret } from "./secrets";
 import { createSender } from "./senders/factory";
 import { getDomainById } from "@/lib/domains";
+import { requireAdmin } from "@/lib/auth/admin";
 import type {
   ChannelType,
   DeliveryStatus,
@@ -100,12 +108,17 @@ export type NotificationsOverview =
 export type RetryDeliveryActionResult =
   { ok: true; status: DeliveryStatus } | { ok: false; error: string };
 
+const UNAUTHORIZED_ERROR = "unauthorized";
+
 /**
  * Read-only overview for the /notifications page: channels, rules, and
  * delivery history in display shape. Never fails the page on a single bad
  * config — invalid channel configs surface as `configInvalid`.
  */
 export async function getNotificationsOverviewAction(): Promise<NotificationsOverview> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: UNAUTHORIZED_ERROR };
+  }
   try {
     const channels = getChannels();
     const rules = getRules();
@@ -129,6 +142,9 @@ export async function getNotificationsOverviewAction(): Promise<NotificationsOve
  * API key) are passed through as-is — they are guaranteed secret-free.
  */
 export async function retryDeliveryAction(deliveryId: number): Promise<RetryDeliveryActionResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: UNAUTHORIZED_ERROR };
+  }
   const delivery = getDelivery(deliveryId);
 
   if (!delivery) {
@@ -229,7 +245,9 @@ async function validateChannelConfigForWrite(
       if (!isValidTelegramChatId(parsed.chatId)) {
         return { ok: false, error: "invalid_chat_id" };
       }
-      if (!isEnvVarName(parsed.secretRef)) {
+      // secretRef is optional since 9G (encrypted secret storage); the
+      // legacy env-var NAME form stays accepted when present.
+      if (parsed.secretRef !== undefined && !isEnvVarName(parsed.secretRef)) {
         return { ok: false, error: "invalid_secret_ref" };
       }
       return { ok: true, config: JSON.stringify(parsed) };
@@ -245,6 +263,9 @@ export async function createChannelAction(input: {
   name: unknown;
   config: unknown;
 }): Promise<CrudResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   if (typeof input.type !== "string" || !CHANNEL_TYPES.has(input.type)) {
     return { ok: false, error: "invalid_channel_type" };
   }
@@ -275,6 +296,9 @@ export async function updateChannelAction(input: {
   name?: unknown;
   config?: unknown;
 }): Promise<CrudResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_channel_id" };
   }
@@ -323,6 +347,9 @@ export async function setChannelEnabledAction(input: {
   id: unknown;
   enabled: unknown;
 }): Promise<CrudResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_channel_id" };
   }
@@ -342,6 +369,9 @@ export async function setChannelEnabledAction(input: {
 }
 
 export async function deleteChannelAction(input: { id: unknown }): Promise<CrudResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_channel_id" };
   }
@@ -355,6 +385,201 @@ export async function deleteChannelAction(input: { id: unknown }): Promise<CrudR
   }
   revalidatePath("/notifications");
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Telegram token UI (Phase 9G)
+//
+// The UI never sees, stores, or returns a bot token. `verify` only returns
+// the bot's PUBLIC identity; `save` validates via getMe, then persists the
+// token ENCRYPTED in notification_secrets (9F) — the channel config holds
+// only non-secret values ({ chatId }). Errors are machine codes; token
+// values never reach logs, errors, HTML/RSC, or SQLite plaintext.
+// ---------------------------------------------------------------------------
+
+/** Secret key under which a Telegram bot token is stored (9F). */
+const TELEGRAM_TOKEN_SECRET_KEY = "token";
+
+const TELEGRAM_ERROR_CODES: Record<TelegramError["code"], string> = {
+  "invalid-config": "invalid_token",
+  rejected: "telegram_rejected",
+  timeout: "telegram_timeout",
+  network: "telegram_network",
+  redirect: "telegram_redirect",
+  "invalid-response": "telegram_invalid_response",
+};
+
+/** Map a TelegramError to a user-safe machine code (never leaks details). */
+function telegramVerifyErrorCode(error: unknown): string {
+  if (error instanceof TelegramError) {
+    return TELEGRAM_ERROR_CODES[error.code] ?? "telegram_rejected";
+  }
+  return "telegram_rejected";
+}
+
+/** Legacy env-based token present in the channel config (Phase 7G). */
+function hasLegacyTelegramSecret(config: string): boolean {
+  try {
+    const parsed = parseTelegramConfig(config);
+    return parsed.secretRef !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+export type VerifyTelegramTokenActionResult =
+  | { ok: true; bot: { username: string | null; firstName: string | null } }
+  | { ok: false; error: string };
+
+/**
+ * Validate a Telegram bot token via getMe. Returns ONLY public bot identity;
+ * never saves, never writes the DB, never returns/echoes the token.
+ */
+export async function verifyTelegramTokenAction(input: {
+  token: unknown;
+}): Promise<VerifyTelegramTokenActionResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: UNAUTHORIZED_ERROR };
+  }
+  if (typeof input.token !== "string" || !isValidTelegramBotToken(input.token.trim())) {
+    return { ok: false, error: "invalid_token" };
+  }
+  try {
+    const bot = await fetchTelegramBotInfo(input.token.trim());
+    return { ok: true, bot: { username: bot.username, firstName: bot.firstName } };
+  } catch (error) {
+    // Controlled failure — machine code only; the error object never
+    // contains the token or the Telegram URL.
+    return { ok: false, error: telegramVerifyErrorCode(error) };
+  }
+}
+
+export async function saveTelegramChannelAction(input: {
+  channelId: unknown;
+  name: unknown;
+  chatId: unknown;
+  token: unknown;
+  enabled: unknown;
+}): Promise<CrudResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: UNAUTHORIZED_ERROR };
+  }
+
+  if (typeof input.name !== "string" || input.name.trim().length === 0) {
+    return { ok: false, error: "invalid_name" };
+  }
+  if (typeof input.chatId !== "string" || !isValidTelegramChatId(input.chatId.trim())) {
+    return { ok: false, error: "invalid_chat_id" };
+  }
+  if (typeof input.enabled !== "boolean") {
+    return { ok: false, error: "invalid_enabled" };
+  }
+
+  const channelId =
+    input.channelId === null || input.channelId === undefined ? null : input.channelId;
+  if (channelId !== null && (typeof channelId !== "number" || !Number.isInteger(channelId))) {
+    return { ok: false, error: "invalid_channel_id" };
+  }
+
+  const token = typeof input.token === "string" ? input.token.trim() : "";
+  const chatId = input.chatId.trim();
+  const name = input.name.trim();
+
+  let existing: NotificationChannel | undefined;
+  if (channelId !== null) {
+    existing = getChannel(channelId);
+    if (!existing) {
+      return { ok: false, error: "channel_not_found" };
+    }
+    if (existing.type !== "telegram") {
+      return { ok: false, error: "invalid_channel_type" };
+    }
+  }
+
+  if (token.length > 0) {
+    // Validate FIRST — on failure nothing is written to the DB.
+    try {
+      await fetchTelegramBotInfo(token);
+    } catch (error) {
+      return { ok: false, error: telegramVerifyErrorCode(error) };
+    }
+  } else if (channelId === null) {
+    // Create always requires a token — a tokenless channel is unsendable.
+    return { ok: false, error: "token_required" };
+  } else {
+    // Edit with empty token: keep the existing secret. Refuse to save a
+    // tokenless state unless a secret (or legacy env ref) already exists.
+    // `existing` is guaranteed here (channelId !== null → fetched above).
+    const existingChannel = existing as NotificationChannel;
+    const hasSecret = hasChannelSecret(channelId, TELEGRAM_TOKEN_SECRET_KEY);
+    const hasLegacy = hasLegacyTelegramSecret(existingChannel.config);
+    if (!hasSecret && !hasLegacy) {
+      return { ok: false, error: "token_required" };
+    }
+  }
+
+  // Non-secret config only — the token NEVER goes into the channel config.
+  // On edit, a legacy env ref (if present) is PRESERVED so 9G never
+  // orphans an existing legacy token mid-flight (Phase 9H migrates it).
+  let config: string;
+  if (channelId !== null) {
+    const legacyRef = hasLegacyTelegramSecret((existing as NotificationChannel).config)
+      ? parseTelegramConfig((existing as NotificationChannel).config).secretRef
+      : undefined;
+    config = JSON.stringify(legacyRef ? { chatId, secretRef: legacyRef } : { chatId });
+  } else {
+    config = JSON.stringify({ chatId });
+  }
+
+  try {
+    if (channelId === null) {
+      const id = createChannel("telegram", name, config);
+      if (token.length > 0) {
+        setChannelSecret(id, TELEGRAM_TOKEN_SECRET_KEY, token);
+      }
+      if (!input.enabled) {
+        setChannelEnabled(id, false);
+      }
+    } else {
+      updateChannel(channelId, { name, config });
+      if (token.length > 0) {
+        // Upsert: replaces the old encrypted secret.
+        setChannelSecret(channelId, TELEGRAM_TOKEN_SECRET_KEY, token);
+      }
+      if (((existing as NotificationChannel).enabled === 1) !== input.enabled) {
+        setChannelEnabled(channelId, input.enabled);
+      }
+    }
+  } catch (error) {
+    // Deliberately generic — the underlying error is never surfaced.
+    console.error("[notifications] saveTelegramChannel failed:", error);
+    return { ok: false, error: "save_failed" };
+  }
+  revalidatePath("/notifications");
+  return { ok: true };
+}
+
+export type ChannelSecretStatusResult =
+  { ok: true; hasToken: boolean } | { ok: false; error: string };
+
+/**
+ * Whether a channel has a token configured. Returns ONLY a boolean — never
+ * the token, ciphertext, or secretRef.
+ */
+export async function getChannelSecretStatusAction(input: {
+  channelId: unknown;
+}): Promise<ChannelSecretStatusResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: UNAUTHORIZED_ERROR };
+  }
+  if (typeof input.channelId !== "number" || !Number.isInteger(input.channelId)) {
+    return { ok: false, error: "invalid_channel_id" };
+  }
+  const channel = getChannel(input.channelId);
+  if (!channel) {
+    return { ok: false, error: "channel_not_found" };
+  }
+  return { ok: true, hasToken: hasChannelSecret(input.channelId, TELEGRAM_TOKEN_SECRET_KEY) };
 }
 
 interface RuleWriteInput {
@@ -422,6 +647,9 @@ function validateRuleWriteInput(
 }
 
 export async function createRuleAction(input: RuleWriteInput): Promise<CrudResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   const validated = validateRuleWriteInput(input);
   if (!validated.ok) {
     return validated;
@@ -439,6 +667,9 @@ export async function createRuleAction(input: RuleWriteInput): Promise<CrudResul
 export async function updateRuleAction(
   input: { id: unknown } & RuleWriteInput,
 ): Promise<CrudResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_rule_id" };
   }
@@ -462,6 +693,9 @@ export async function setRuleEnabledAction(input: {
   id: unknown;
   enabled: unknown;
 }): Promise<CrudResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_rule_id" };
   }
@@ -481,6 +715,9 @@ export async function setRuleEnabledAction(input: {
 }
 
 export async function deleteRuleAction(input: { id: unknown }): Promise<CrudResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_rule_id" };
   }
@@ -539,8 +776,11 @@ function toChannelView(row: NotificationChannel): ChannelView {
     } else if (row.type === "telegram") {
       const config = parseTelegramConfig(row.config);
       configFields.push({ label: "Chat ID", value: config.chatId });
-      // Ref NAME only (e.g. "TELEGRAM_BOT_TOKEN") — never the token value.
-      configFields.push({ label: "Secret ref", value: config.secretRef });
+      if (config.secretRef !== undefined) {
+        // Legacy Phase 7G env-based token. The env var NAME is intentionally
+        // hidden from the UI — users only see that a legacy config exists.
+        configFields.push({ label: "Legacy token", value: "configured via environment" });
+      }
     } else {
       // Unknown channel type: never fall back to a webhook parse.
       configInvalid = true;

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { checkSsl } from "./service";
 import type { SslChange } from "./types";
 import type { SslErrorCode } from "@/lib/monitoring/error-classifier";
+import { requireAdmin } from "@/lib/auth/admin";
 
 export type SslActionResult =
   | { ok: true; snapshotId: number; checkedAt: Date; changes: SslChange[] }
@@ -18,6 +19,9 @@ export type SslActionResult =
  * messages; details go to the server log.
  */
 export async function checkSslAction(domainId: number): Promise<SslActionResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: "unauthorized" };
+  }
   const result = await checkSsl(domainId);
 
   if (!result.ok) {

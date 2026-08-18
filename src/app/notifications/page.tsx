@@ -7,10 +7,13 @@ import { ChannelsTable } from "@/components/notifications/channels-table";
 import { RulesTable } from "@/components/notifications/rules-table";
 import { DeliveriesTable } from "@/components/notifications/deliveries-table";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { LogoutButton } from "@/components/auth/logout-button";
+import { requirePageAccess } from "@/lib/auth/admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function NotificationsPage() {
+  await requirePageAccess();
   const result = await getNotificationsOverviewAction();
   const domains = getDomains().map((domain) => ({ id: domain.id, label: domain.hostname }));
   const locale = await getLocale();
@@ -22,7 +25,10 @@ export default async function NotificationsPage() {
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 hover:underline">
           {lookup(dict, "nav.backToDashboard")}
         </Link>
-        <LanguageSwitcher locale={locale} />
+        <div className="flex items-center gap-3">
+          <LanguageSwitcher locale={locale} />
+          <LogoutButton label={dict.auth.logout} />
+        </div>
       </nav>
 
       <header className="mb-8">

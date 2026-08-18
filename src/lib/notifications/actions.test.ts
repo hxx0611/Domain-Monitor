@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/domains", () => ({ getDomainById: vi.fn() }));
+vi.mock("@/lib/auth/admin", () => ({ requireAdmin: vi.fn() }));
 vi.mock("@/lib/notifications/senders/webhook", async (importOriginal) => {
   const mod = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -50,12 +51,14 @@ import {
   deleteChannelAction,
   deleteRuleAction,
   getNotificationsOverviewAction,
+  retryDeliveryAction,
   setChannelEnabledAction,
   setRuleEnabledAction,
   updateChannelAction,
   updateRuleAction,
 } from "./actions";
 import { getDomainById as realGetDomainById } from "@/lib/domains";
+import { requireAdmin } from "@/lib/auth/admin";
 
 // Re-import the mocked modules with explicit names for vi.mocked.
 import * as repository from "@/lib/notifications/repository";
@@ -65,6 +68,7 @@ const m = {
   getChannels: vi.mocked(repository.getChannels),
   getDeliveriesWithDetails: vi.mocked(repository.getDeliveriesWithDetails),
   getRules: vi.mocked(repository.getRules),
+  retryDelivery: vi.mocked(repository.retryDelivery),
   createChannel: vi.mocked(repository.createChannel),
   updateChannel: vi.mocked(repository.updateChannel),
   setChannelEnabled: vi.mocked(repository.setChannelEnabled),
@@ -76,6 +80,7 @@ const m = {
 };
 const mockedRevalidatePath = vi.mocked(revalidatePath);
 const mockedGetDomainById = vi.mocked(realGetDomainById);
+const mockedRequireAdmin = vi.mocked(requireAdmin);
 
 const EMAIL_CONFIG = JSON.stringify({
   to: "a@b.c",
@@ -104,7 +109,88 @@ function channelRow(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedRequireAdmin.mockResolvedValue(true);
   mockedGetDomainById.mockReturnValue({ id: 1, hostname: "example.com" } as never);
+});
+
+describe("authorization guard", () => {
+  it("rejects CRUD actions with the unauthorized machine code when not an admin", async () => {
+    mockedRequireAdmin.mockResolvedValue(false);
+
+    expect(
+      await createChannelAction({ type: "telegram", name: "TG", config: TELEGRAM_CONFIG }),
+    ).toEqual({
+      ok: false,
+      error: "unauthorized",
+    });
+    expect(
+      await createRuleAction({
+        name: "R",
+        channelId: 1,
+        source: undefined,
+        eventType: undefined,
+        domainId: undefined,
+        enabled: true,
+      }),
+    ).toEqual({
+      ok: false,
+      error: "unauthorized",
+    });
+    expect(await updateChannelAction({ id: 1, name: "X" })).toEqual({
+      ok: false,
+      error: "unauthorized",
+    });
+    expect(await setChannelEnabledAction({ id: 1, enabled: false })).toEqual({
+      ok: false,
+      error: "unauthorized",
+    });
+    expect(await deleteChannelAction({ id: 1 })).toEqual({
+      ok: false,
+      error: "unauthorized",
+    });
+    expect(
+      await updateRuleAction({
+        id: 1,
+        name: "R",
+        channelId: 1,
+        source: undefined,
+        eventType: undefined,
+        domainId: undefined,
+        enabled: true,
+      }),
+    ).toEqual({
+      ok: false,
+      error: "unauthorized",
+    });
+    expect(await setRuleEnabledAction({ id: 1, enabled: false })).toEqual({
+      ok: false,
+      error: "unauthorized",
+    });
+    expect(await deleteRuleAction({ id: 1 })).toEqual({
+      ok: false,
+      error: "unauthorized",
+    });
+
+    // None of the repository writes may run.
+    expect(m.createChannel).not.toHaveBeenCalled();
+    expect(m.createRule).not.toHaveBeenCalled();
+    expect(m.updateChannel).not.toHaveBeenCalled();
+    expect(m.deleteChannel).not.toHaveBeenCalled();
+    expect(m.deleteRule).not.toHaveBeenCalled();
+  });
+
+  it("rejects read-only overview with a plain Unauthorized message when not an admin", async () => {
+    mockedRequireAdmin.mockResolvedValue(false);
+    const result = await getNotificationsOverviewAction();
+    expect(result).toEqual({ ok: false, error: "unauthorized" });
+  });
+
+  it("rejects retry with a plain Unauthorized message when not an admin", async () => {
+    mockedRequireAdmin.mockResolvedValue(false);
+    const result = await retryDeliveryAction(1);
+    expect(result).toEqual({ ok: false, error: "unauthorized" });
+    expect(m.retryDelivery).not.toHaveBeenCalled();
+  });
 });
 
 describe("channel CRUD actions", () => {
@@ -370,7 +456,7 @@ describe("secret boundary (Phase 8B)", () => {
   });
 });
 
-describe("toChannelView (Phase 8B telegram fix)", () => {
+describe("toChannelView (Phase 8B telegram fix / Phase 9G legacy)", () => {
   it("renders telegram channels correctly (no longer configInvalid)", async () => {
     m.getChannels.mockReturnValue([
       channelRow({ id: 1, type: "telegram", config: TELEGRAM_CONFIG }),
@@ -383,10 +469,28 @@ describe("toChannelView (Phase 8B telegram fix)", () => {
       expect(result.channels).toHaveLength(1);
       const view = result.channels[0];
       expect(view.configInvalid).toBe(false);
+      // 9G: the env var NAME is hidden from the UI — legacy channels only
+      // surface a neutral "legacy" marker (never TELEGRAM_BOT_TOKEN).
       expect(view.configFields.map((f) => [f.label, f.value])).toEqual([
         ["Chat ID", "1616146471"],
-        ["Secret ref", "TELEGRAM_BOT_TOKEN"],
+        ["Legacy token", "configured via environment"],
       ]);
+      expect(JSON.stringify(view)).not.toContain("TELEGRAM_BOT_TOKEN");
+    }
+  });
+
+  it("renders 9G telegram config (chatId only) without legacy marker", async () => {
+    m.getChannels.mockReturnValue([
+      channelRow({ id: 1, type: "telegram", config: JSON.stringify({ chatId: "1616146471" }) }),
+    ]);
+    m.getRules.mockReturnValue([]);
+    m.getDeliveriesWithDetails.mockReturnValue([]);
+    const result = await getNotificationsOverviewAction();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const view = result.channels[0];
+      expect(view.configInvalid).toBe(false);
+      expect(view.configFields.map((f) => [f.label, f.value])).toEqual([["Chat ID", "1616146471"]]);
     }
   });
 

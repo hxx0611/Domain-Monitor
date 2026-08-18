@@ -11,11 +11,14 @@
 掌控你的域名：跟踪注册信息、发现 DNS 与 SSL 变化、捕获 HTTP 故障——并在变化发生时收到通知。
 
 - **事件驱动通知** —— 变化转化为事件，事件转化为通知
-- **Webhook / Email** 投递到你的现有工具
+- **Telegram / Webhook / Email** 投递到你的工具
 - **Delivery Worker** —— 一次性 CLI，配合 cron 调度，无 daemon
+- **管理员认证** —— 初始化向导、登录、一次性恢复码
 - **English / 简体中文** 界面
 
 ![仪表盘](docs/screenshots/dashboard-zh-CN.png)
+
+> 截图反映较早版本；当前 UI 已加入管理员认证与 Telegram 渠道。
 
 ## 为什么选择 Domain-Monitor？
 
@@ -75,9 +78,17 @@ pnpm dev
 ### 通知系统
 
 - DNS / SSL / HTTP 检查产生的域名生命周期事件
-- 通知渠道：**Email API** 与 **Webhook**
-- 基于规则的投递匹配（全局或按域名规则）
+- 通知渠道：**Telegram**、**Email API** 与 **Webhook**
+- 基于规则的投递匹配（全局或按域名规则，可按 source / event type 过滤）
+- 通知配置 UI —— 渠道 CRUD（创建 / 编辑 / 启停 / 删除）、规则 CRUD
+- Telegram Bot Token 通过 `getMe` 服务端验证，并以 **AES-256-GCM 加密存储**（`ENCRYPTION_KEY`），保留 legacy `TELEGRAM_BOT_TOKEN` 环境变量回退
 - 投递历史与状态跟踪（pending / sending / sent / failed），支持手动重试
+
+### 管理员认证
+
+- 一次性 **初始化向导**（`/setup`）—— 创建管理员密码（scrypt 哈希）与一次性**恢复码**
+- **HMAC 签名会话 cookie** —— 登录 / 登出、受保护的页面与 Server Actions
+- 密码恢复会轮换会话密钥，使所有旧会话失效
 
 ### 投递 Worker
 
@@ -100,7 +111,7 @@ flowchart LR
     B --> C[Rule Matching]
     C --> D[Delivery Queue]
     D --> E[Worker / Cron]
-    E --> F[Webhook / Email]
+    E --> F[Telegram / Webhook / Email]
 ```
 
 一次检查在**同一个事务**中写入其快照、事件与匹配的 pending 投递。投递 Worker 原子 claim pending 投递（CAS）并调用发送器。从 UI 重试失败的投递可端到端工作。
@@ -109,21 +120,23 @@ flowchart LR
 
 ## 安全设计
 
+- **管理员认证** —— 受保护的页面与 Server Actions；scrypt 密码哈希；签名会话 cookie；恢复码轮换使旧会话失效
+- **加密密钥存储** —— Telegram Bot Token 以 **AES-256-GCM 加密存储**（`iv:tag:ciphertext`，密钥来自 `ENCRYPTION_KEY`）；token 绝不渲染回 HTML/RSC/客户端 bundle —— 仅暴露 CONFIGURED/NOT CONFIGURED 状态
 - **SSRF 防护** —— 出站请求仅 HTTPS，逐跳重定向复查
 - **仅 HTTPS** 出站流量，**每一跳都重新校验重定向**
-- **密钥隔离** —— API key / webhook secret 以引用形式存储，绝不暴露在 UI、Worker 输出或客户端 bundle 中
+- **密钥隔离** —— API key / webhook secret / bot token 绝不暴露在 UI、Worker 输出或客户端 bundle 中
 - **at-least-once** 投递，配合稳定的 `eventId` + `deliveryId` 供接收方去重
 
 ## 为可靠性而构建
 
-- **488 个测试**，覆盖服务、状态机、发送器、投递 Worker 与 i18n 核心
+- **687 个测试**（44 个文件），覆盖服务、状态机、发送器、投递 Worker、i18n 核心与管理员认证
 - **SSRF 防护**的 webhook 与 email 发送器
 - **SQLite 并发经过测试** —— 原子 claim（CAS）+ `busy_timeout = 5000`
 - **自托管** —— 数据留在你自己的机器上
 
 ## 当前状态
 
-**当前版本：v0.7.1 — 双语 UI / 简体中文支持**
+**当前版本：v0.8.0 — 管理员认证、Telegram 通知与加密密钥存储**
 
 当前支持：
 
@@ -132,8 +145,11 @@ flowchart LR
 - DNS 监控
 - SSL 证书监控
 - HTTP 健康检查
-- 通知系统（email / webhook 渠道、规则、投递历史、手动重试）
+- 通知系统（telegram / email / webhook 渠道、规则、投递历史、手动重试）
+- 通知配置 UI（渠道与规则 CRUD、Telegram token 设置与 `getMe` 验证）
 - 投递 Worker（自动 Event → Delivery → Send 管道，一次性 CLI + 外部 cron）
+- 管理员认证（初始化向导、登录/登出、恢复码、受保护页面）
+- 加密密钥存储（AES-256-GCM、`ENCRYPTION_KEY`、legacy 环境变量回退）
 - 双语 UI（English / 简体中文，基于 cookie 的语言切换）
 
 DNS、SSL 与 HTTP 检查目前均为手动触发；自动调度计划在未来的版本中提供。
@@ -201,7 +217,7 @@ Worker 从不打印密钥：不打印 API key、不打印 `Authorization`/`Beare
 pnpm test
 ```
 
-当前测试套件：**488 个测试**，覆盖域名校验、RDAP 解析、DNS 规范化与 diff、SSL 证书解析与 diff、HTTP 状态分类与 SSRF 防护抓取、DNS/SSL/HTTP 服务、通知事件/规则/投递状态机、SSRF 防护的 webhook 与 email 发送器、自动 Event → Delivery 生成、投递 Worker、语言感知的 i18n 核心（字典、cookie 回退、客户端/服务端边界）与数据仓库。
+当前测试套件：**687 个测试（44 个文件）**，覆盖域名校验、RDAP 解析、DNS 规范化与 diff、SSL 证书解析与 diff、HTTP 状态分类与 SSRF 防护抓取、DNS/SSL/HTTP 服务、通知事件/规则/投递状态机、SSRF 防护的 webhook 与 email 发送器、自动 Event → Delivery 生成、投递 Worker、管理员认证（会话、setup/login/recovery）、加密密钥存储、Telegram 发送器密钥解析、语言感知的 i18n 核心（字典、cookie 回退、客户端/服务端边界）与数据仓库。
 
 推送改动前还需运行：
 
@@ -251,6 +267,9 @@ pnpm db:studio     # 打开可视化数据库浏览器
 - [x] **V0.5** — HTTP 健康检查
 - [x] **V0.6** — 通知系统
 - [x] **V0.7** — 通知投递 Worker
+- [x] **V0.7.1** — 双语 UI
+- [x] **V0.7.3** — 监控错误分类
+- [x] **V0.8.0** — 管理员认证、Telegram 通知与加密密钥存储
 
 ## 参与贡献
 

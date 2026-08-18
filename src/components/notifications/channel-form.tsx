@@ -4,13 +4,16 @@
  * Notification channel create/edit form + add/edit/toggle triggers.
  *
  * Client component; follows the RetryDeliveryButton pattern
- * (useTransition + router.refresh + role="alert"). Secret policy: the
- * form only ever collects secretRef / apiKeyRef NAMES (env var names).
- * There is deliberately NO password-style input — the real secret value
- * lives in the supervisor environment and is never read by the UI.
+ * (useTransition + router.refresh + role="alert"). Secret policy: email /
+ * webhook forms only collect secretRef / apiKeyRef NAMES (env var names).
+ * The Telegram form (Phase 9G) collects a bot TOKEN in a password input,
+ * validates it via getMe (server-side only — the client never calls the
+ * Telegram API), and saves it ENCRYPTED through the server action. The
+ * token is never rendered back, never shown after save, and never leaves
+ * the password field except through the server action wire.
  */
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Dictionary } from "@/lib/i18n/en";
 import { lookup } from "@/lib/i18n/display";
@@ -18,6 +21,9 @@ import {
   createChannelAction,
   setChannelEnabledAction,
   updateChannelAction,
+  verifyTelegramTokenAction,
+  saveTelegramChannelAction,
+  getChannelSecretStatusAction,
   type ChannelView,
 } from "@/lib/notifications/actions";
 
@@ -31,6 +37,13 @@ function fieldValue(channel: ChannelView | undefined, label: string): string {
   }
   return channel.configFields.find((f) => f.label === label)?.value ?? "";
 }
+
+/** Replace {token} style placeholders with values (lookup-safe). */
+function formatTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key: string) => values[key] ?? "");
+}
+
+type VerifyState = "idle" | "pending" | "success" | "error";
 
 export function ChannelForm({
   mode,
@@ -57,19 +70,83 @@ export function ChannelForm({
   const [endpoint, setEndpoint] = useState(fieldValue(channel, "Endpoint"));
   const [apiKeyRef, setApiKeyRef] = useState(fieldValue(channel, "API key ref"));
 
-  function buildConfig(): string {
-    if (type === "telegram") {
-      return JSON.stringify({ chatId, secretRef });
+  // Telegram (Phase 9G): token lives ONLY in this client-side password
+  // state; it is never rendered back, never persisted to HTML/RSC.
+  const [token, setToken] = useState("");
+  const [enabled, setEnabled] = useState(channel?.enabled ?? true);
+  const [verifyState, setVerifyState] = useState<VerifyState>("idle");
+  const [verifiedBot, setVerifiedBot] = useState<{
+    username: string | null;
+    firstName: string | null;
+  } | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  // Edit-mode secret status: null until loaded, then boolean.
+  const [hasToken, setHasToken] = useState<boolean | null>(null);
+  const legacyConfig = fieldValue(channel, "Legacy token") !== "";
+
+  // Edit mode: ask the server whether a token is configured (boolean only).
+  useEffect(() => {
+    if (mode !== "edit" || !channel) {
+      return;
     }
+    let cancelled = false;
+    getChannelSecretStatusAction({ channelId: channel.id }).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      if (result.ok) {
+        setHasToken(result.hasToken);
+      } else {
+        setHasToken(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, channel]);
+
+  function buildConfig(): string {
     if (type === "webhook") {
       return JSON.stringify(secretRef.trim() === "" ? { url } : { url, secretRef });
     }
     return JSON.stringify({ to, from, endpoint, apiKeyRef });
   }
 
+  function handleVerifyToken() {
+    setVerifyState("pending");
+    setVerifyError(null);
+    setVerifiedBot(null);
+    startTransition(async () => {
+      const result = await verifyTelegramTokenAction({ token });
+      if (!result.ok) {
+        setVerifyState("error");
+        setVerifyError(lookup(dict, `notifications.errors.${result.error}`));
+        return;
+      }
+      setVerifiedBot(result.bot);
+      setVerifyState("success");
+    });
+  }
+
   function handleSubmit() {
     setError(null);
     startTransition(async () => {
+      if (type === "telegram") {
+        const result = await saveTelegramChannelAction({
+          channelId: mode === "edit" ? channel!.id : null,
+          name,
+          chatId,
+          token,
+          enabled,
+        });
+        if (!result.ok) {
+          setError(lookup(dict, `notifications.errors.${result.error}`));
+          return;
+        }
+        router.refresh();
+        onDone?.();
+        return;
+      }
       const result =
         mode === "create"
           ? await createChannelAction({ type, name, config: buildConfig() })
@@ -91,6 +168,17 @@ export function ChannelForm({
     chatIdHint: lookup(dict, "notifications.channelForm.chatIdHint"),
     secretRef: lookup(dict, "notifications.channelForm.secretRef"),
     secretRefHint: lookup(dict, "notifications.channelForm.secretRefHint"),
+    botToken: lookup(dict, "notifications.channelForm.botToken"),
+    verifyToken: lookup(dict, "notifications.channelForm.verifyToken"),
+    verifyingToken: lookup(dict, "notifications.channelForm.verifyingToken"),
+    tokenKeepPlaceholder: lookup(dict, "notifications.channelForm.tokenKeepPlaceholder"),
+    tokenEncryptedNote: lookup(dict, "notifications.channelForm.tokenEncryptedNote"),
+    connectedAs: lookup(dict, "notifications.channelForm.connectedAs"),
+    connectedAsName: lookup(dict, "notifications.channelForm.connectedAsName"),
+    tokenConfigured: lookup(dict, "notifications.channelForm.tokenConfigured"),
+    tokenNotConfigured: lookup(dict, "notifications.channelForm.tokenNotConfigured"),
+    legacyConfigNote: lookup(dict, "notifications.channelForm.legacyConfigNote"),
+    enabled: lookup(dict, "notifications.channelForm.enabled"),
     url: lookup(dict, "notifications.channelForm.url"),
     to: lookup(dict, "notifications.channelForm.to"),
     from: lookup(dict, "notifications.channelForm.from"),
@@ -156,17 +244,67 @@ export function ChannelForm({
               />
               <span className="mt-1 block text-xs text-gray-500">{labels.chatIdHint}</span>
             </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium text-gray-700">{labels.secretRef}</span>
+            <div className="block text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium text-gray-700">{labels.botToken}</span>
+              <div className="flex gap-2">
+                <input
+                  className={inputClass}
+                  type="password"
+                  value={token}
+                  onChange={(event) => {
+                    setToken(event.target.value);
+                    setVerifyState("idle");
+                    setVerifiedBot(null);
+                    setVerifyError(null);
+                  }}
+                  placeholder={mode === "edit" ? labels.tokenKeepPlaceholder : undefined}
+                  autoComplete="off"
+                  disabled={isPending}
+                  aria-label={labels.botToken}
+                />
+                <button
+                  type="button"
+                  onClick={handleVerifyToken}
+                  disabled={isPending || token.trim() === "" || verifyState === "pending"}
+                  className="shrink-0 rounded-md border border-blue-300 bg-white px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                >
+                  {verifyState === "pending" ? labels.verifyingToken : labels.verifyToken}
+                </button>
+              </div>
+              {mode === "edit" && hasToken !== null && (
+                <span className="mt-1 block text-xs text-gray-600">
+                  {hasToken ? labels.tokenConfigured : labels.tokenNotConfigured}
+                </span>
+              )}
+              {mode === "edit" && legacyConfig && (
+                <span className="mt-1 block text-xs text-amber-600">{labels.legacyConfigNote}</span>
+              )}
+              {verifyState === "success" && verifiedBot && (
+                <span className="mt-1 block text-xs text-green-600">
+                  {verifiedBot.username
+                    ? formatTemplate(labels.connectedAs, { username: verifiedBot.username })
+                    : formatTemplate(labels.connectedAsName, {
+                        firstName: verifiedBot.firstName ?? "Bot",
+                      })}
+                </span>
+              )}
+              {verifyState === "error" && verifyError && (
+                <span role="alert" className="mt-1 block text-xs text-red-600">
+                  {verifyError}
+                </span>
+              )}
+              <span className="mt-1 block text-xs text-gray-500">{labels.tokenEncryptedNote}</span>
+            </div>
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
               <input
-                className={inputClass}
-                value={secretRef}
-                onChange={(event) => setSecretRef(event.target.value)}
-                required
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
                 disabled={isPending}
-                aria-label={labels.secretRef}
+                className="rounded border-gray-300"
+                aria-label={labels.enabled}
               />
-              <span className="mt-1 block text-xs text-gray-500">{labels.secretRefHint}</span>
+              <span className="font-medium text-gray-700">{labels.enabled}</span>
             </label>
           </>
         )}

@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { checkHttpAction } from "./actions";
 import { checkHttp } from "./service";
+import { requireAdmin } from "@/lib/auth/admin";
 
 vi.mock("./service", () => ({
   checkHttp: vi.fn(),
@@ -10,12 +11,30 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
+vi.mock("@/lib/auth/admin", () => ({
+  requireAdmin: vi.fn(),
+}));
+
 import { revalidatePath } from "next/cache";
 
 const mockedCheckHttp = vi.mocked(checkHttp);
 const mockedRevalidatePath = vi.mocked(revalidatePath);
+const mockedRequireAdmin = vi.mocked(requireAdmin);
 
 describe("checkHttpAction", () => {
+  beforeEach(() => {
+    mockedRequireAdmin.mockResolvedValue(true);
+  });
+
+  it("returns Unauthorized without touching the service when not an admin", async () => {
+    mockedRequireAdmin.mockResolvedValue(false);
+
+    const result = await checkHttpAction(7);
+
+    expect(result).toEqual({ ok: false, error: "unauthorized" });
+    expect(mockedCheckHttp).not.toHaveBeenCalled();
+    expect(mockedRevalidatePath).not.toHaveBeenCalled();
+  });
   it("returns the mapped result and revalidates on success", async () => {
     mockedCheckHttp.mockResolvedValue({
       ok: true,

@@ -1,47 +1,55 @@
 # Domain-Monitor — Project Handover
 
-> AI-to-AI handover. Written 2026-08-16. GitHub `hxx0611/Domain-Monitor` is the **source of truth for code**; this document describes the project, its architecture, and how to continue working on it safely.
+> AI-to-AI handover. Updated 2026-08-18 for v0.8.0. GitHub `hxx0611/Domain-Monitor` is the **source of truth for code**; this document describes the project, its architecture, and how to continue working on it safely.
 
 ## Project overview
 
 **Domain-Monitor** is a self-hosted domain lifecycle monitoring platform:
+
 - Manage monitored domains in one place (self-hosted, local SQLite storage)
 - RDAP enrichment on creation (registrar, expiry, nameservers, status; IANA bootstrap, 590+ TLDs)
 - **DNS monitoring** via DNS-over-HTTPS (7 record types: A/AAAA/CNAME/MX/NS/TXT/CAA)
 - **SSL/TLS monitoring** (leaf certificate extraction, expiry/hostname classification)
 - **HTTP health checks** (status code, response time, redirects, SSRF-guarded)
 - **Snapshot history** per module with change detection
-- **Notification pipeline** (V0.6+): events → rules → deliveries → webhook/email senders, at-least-once
+- **Notification pipeline** (V0.6+): events → rules → deliveries → telegram/webhook/email senders, at-least-once
 - **Delivery worker** (V0.7): single-tick `runOnce` CLI, CAS-claimed deliveries, stale recovery
 - **Bilingual UI** (V0.7.1): English / Simplified Chinese, cookie-based locale
 - **Monitoring error classification** (V0.7.3): stable machine codes + localized messages
+- **Admin authentication** (V0.8.0 / Phase 9E): setup wizard, login/logout, recovery code, protected pages & Server Actions
+- **Encrypted secret storage** (V0.8.0 / Phase 9F): AES-256-GCM encrypted notification secrets (`ENCRYPTION_KEY`)
+- **Telegram channel + configuration UI** (V0.8.0 / Phases 9G–9H): channel/rule CRUD, getMe token verification, sender secret resolution with legacy env fallback
 
 ## Current version
 
-- **v0.7.3 — Monitoring Error Clarity** (latest release)
-- Git commit: `fe4b70450c9c9e701eca982ab93a5b1798837a16` (main HEAD == tag v0.7.3)
-- GitHub Release: `V0.7.3 — Monitoring Error Clarity`
+- **v0.8.0 — Admin Authentication, Telegram Notifications & Encrypted Secrets**
+- Git commit: see `git rev-parse HEAD` / `origin/main` (release commit for v0.8.0)
+- GitHub Release: **v0.8.0** (tag `v0.8.0`)
+- The `v0.7.3` tag still points at `fe4b704` (never moved); **no v0.7.3 GitHub Release was ever published** — the v0.7.2/v0.7.3 eras exist only as git tags/commits.
 
 ## Tech stack
 
-| Layer | Choice | Notes |
-|---|---|---|
-| Framework | Next.js **^15.5.23** | App Router, Server Actions, RSC, `force-dynamic` pages |
-| UI | React ^19.2.8 | Client components only where needed (buttons, language switcher) |
-| ORM | drizzle-orm **^0.44.7** | better-sqlite3 driver (sync); `drizzle-kit` ^0.31.10 for migrations |
-| DB | **better-sqlite3 ^13.0.3** | N-API prebuilds, no node-gyp; SQLite file |
-| Runtime | Node **>=22** (22/24/26 CI-verified; pnpm 11.2.2 via packageManager) | engines in package.json |
-| i18n | Hand-rolled dictionary + cookie | No next-intl, no middleware, no URL prefixes |
-| Tests | vitest ^4.1.10 | 501 tests |
+| Layer     | Choice                                                               | Notes                                                               |
+| --------- | -------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Framework | Next.js **^15.5.23**                                                 | App Router, Server Actions, RSC, `force-dynamic` pages              |
+| UI        | React ^19.2.8                                                        | Client components only where needed (buttons, language switcher)    |
+| ORM       | drizzle-orm **^0.44.7**                                              | better-sqlite3 driver (sync); `drizzle-kit` ^0.31.10 for migrations |
+| DB        | **better-sqlite3 ^13.0.3**                                           | N-API prebuilds, no node-gyp; SQLite file                           |
+| Runtime   | Node **>=22** (22/24/26 CI-verified; pnpm 11.2.2 via packageManager) | engines in package.json                                             |
+| i18n      | Hand-rolled dictionary + cookie                                      | No next-intl, no middleware, no URL prefixes                        |
+| Auth      | Node built-in `crypto` (scrypt + HMAC-SHA256)                        | Signed session cookie, no third-party auth                          |
+| Secrets   | AES-256-GCM via Node `crypto`                                        | `ENCRYPTION_KEY` env; `iv:tag:ciphertext` in DB                     |
+| Tests     | vitest ^4.1.10                                                       | 687 tests / 44 files                                                |
 
 ## Directory structure (src/)
 
 ```
 src/
-  app/                    # App Router pages (/, /domains/[id], /notifications)
-  components/             # Server + client components (buttons, language switcher, tables)
-  db/                     # schema.ts, index.ts (better-sqlite3 init), migrations/ (0000-0005)
+  app/                    # App Router pages (/, /domains/[id], /notifications, /setup, /login, /recover)
+  components/             # Server + client components (buttons, language switcher, tables, auth forms, channel/rule forms)
+  db/                     # schema.ts, index.ts (better-sqlite3 init), migrations/ (0000-0006)
   lib/
+    auth/                 # session signing/verification, scrypt password hashing, recovery codes, page/action guards
     domains/              # domain CRUD + RDAP enrichment (actions/repository/validation)
     dns/                  # DoH client, normalize, diff, repository, service, actions
     ssl/                  # tls client, normalize, diff, repository, service, actions
@@ -49,7 +57,7 @@ src/
     rdap/                 # IANA bootstrap + RDAP client
     i18n/                 # config (cookie/locale), en.ts, zh-CN.ts, index (server), display (client-safe), actions
     monitoring/           # error-classifier.ts (V0.7.3) — pure mapping to machine codes
-    notifications/        # events, rules, repository, service, worker, senders (email/webhook)
+    notifications/        # events, rules, repository, service, worker, senders (telegram/webhook/email), encryption.ts, secrets.ts, telegram-actions.ts
     format.ts             # locale-aware date formatting
 scripts/                  # worker.ts (CLI), worker-proc.ts (test helper), smoke tests, vitest phase configs
 test/                     # vitest helpers, server-only stub
@@ -58,27 +66,33 @@ test/                     # vitest helpers, server-only stub
 ## Core modules
 
 - **RDAP**: fetched once at domain creation (best-effort; failure never blocks creation), stored on `domains` row; manual refresh available.
-- **DNS**: 7 record types queried in parallel over DoH (`DNS_DOH_ENDPOINT` or default Cloudflare). Any type failure fails the whole check and **writes no snapshot** (atomicity). NXDOMAIN (DoH status 3) is a *successful* query returning zero/partial records — never an error.
+- **DNS**: 7 record types queried in parallel over DoH (`DNS_DOH_ENDPOINT` or default Cloudflare). Any type failure fails the whole check and **writes no snapshot** (atomicity). NXDOMAIN (DoH status 3) is a _successful_ query returning zero/partial records — never an error.
 - **SSL**: `tls.connect(host, 443, {rejectUnauthorized:false})`, reads leaf X509 certificate, normalizes (fingerprint/subject/issuer/SAN/validity), classifies ok / expires_soon / expired / mismatch / error. TLS failure writes an **error snapshot** (preserves prior certificate).
 - **HTTP**: GET `https://<host>/` with manual redirects; every hop re-validated (DNS resolve → IP classification); SSRF guards in `src/lib/http/client.ts` (blocked IP ranges incl. loopback/private/CGNAT/link-local/cloud-metadata). Failure writes an **error snapshot**.
-- **Notifications** (V0.6): unified event stream with dedup keys; rules map events → channels; deliveries claim via CAS (`pending→sending`); senders are webhook (SSRF-guarded, secretRef) and email (apiKeyRef); at-least-once, **no automatic retry**.
+- **Notifications** (V0.6–V0.8): unified event stream with dedup keys; rules map events → channels; deliveries claim via CAS (`pending→sending`); senders are webhook (SSRF-guarded, secretRef), email (apiKeyRef), and **telegram** (token resolved from encrypted store → `TELEGRAM_BOT_TOKEN` env fallback → controlled failure); at-least-once, **no automatic retry**.
+- **Admin auth** (V0.8.0): `/setup` creates the scrypt-hashed password + one-time recovery code; sessions are HMAC-SHA256 signed cookies; password recovery rotates the session secret; `requirePageAccess` / `requireAdmin` guard pages and Server Actions.
+- **Secret storage** (V0.8.0): `encryptSecret`/`decryptSecret` (AES-256-GCM, `iv:tag:ciphertext`); `upsertSecret` per `(channel_id, key)` with FK cascade; `ENCRYPTION_KEY` env required in production (dev persists a generated key).
+- **Telegram token UI** (V0.8.0): `verifyTelegramTokenAction` calls Telegram `getMe` server-side; `saveTelegramChannelAction` encrypts the token into `notification_secrets`; edit mode keeps the existing token when the field is left blank.
 - **Delivery worker** (V0.7): `pnpm worker` runs one `runOnce` tick (limit 50), recovers stale `sending` rows, claims pending deliveries, sends, marks sent/failed. No daemon; scheduling is external (cron).
 - **i18n** (V0.7.1): cookie `domain-monitor-locale` (en/zh-CN, default en) + Server Action `setLocaleAction` + `router.refresh()`. Machine values are never translated; display layer maps codes → labels.
 - **Error classification** (V0.7.3): `error-classifier.ts` maps transport codes → prefixed stable codes; raw messages stay in server logs only.
 
 ## Server Actions
 
-`src/lib/{domains,dns,ssl,http,notifications,i18n}/actions.ts` — `"use server"` modules:
+`src/lib/{auth,domains,dns,ssl,http,notifications,i18n}/actions.ts` — `"use server"` modules:
+
+- `setupAdminAction` / `loginAction` / `logoutAction` / `recoverAction` (auth)
 - `createDomainAction` / `deleteDomainAction` / `refreshRdapAction`
 - `checkDnsAction` / `checkSslAction` / `checkHttpAction` (return `{ok, error?, errorCode?}`)
-- `retryDeliveryAction`, `setLocaleAction`
-- Actions revalidate `/` and `/domains/[id]`; errors are user-safe strings + machine `errorCode`.
+- `createChannelAction` / `updateChannelAction` / `deleteChannelAction` / `toggleChannelAction` / `createRuleAction` / `updateRuleAction` / `deleteRuleAction` / `toggleRuleAction` / `verifyTelegramTokenAction` / `retryDeliveryAction`
+- `setLocaleAction`
+- All mutating actions require an authenticated admin session; actions revalidate `/`, `/domains/[id]`, `/notifications`; errors are user-safe strings + machine `errorCode`.
 
 ## Database
 
-- SQLite file (default `./data/domain-monitor.db`, overridable via `DATABASE_URL`).
-- 10 tables, 6 migrations (`src/db/migrations/0000…0005`), drizzle `__drizzle_migrations` journal.
-- FK constraints ON (`ON DELETE CASCADE` for snapshots/records); `busy_timeout = 5000` for the dual-process (server + worker) writes.
+- SQLite file (default `./data/domain-monitor.db`, overridable via `DATABASE_URL`; production = `/tmp/domain-monitor/data/domain-monitor.db`).
+- 12 tables, 7 migrations (`src/db/migrations/0000…0006`), drizzle `__drizzle_migrations` journal.
+- FK constraints ON (`ON DELETE CASCADE` for snapshots/records, channels → secrets); `busy_timeout = 5000` for the dual-process (server + worker) writes.
 - See `DATABASE.md`.
 
 ## Monitoring details
@@ -93,12 +107,13 @@ test/                     # vitest helpers, server-only stub
 
 ## Test architecture
 
-- 501 unit/integration tests (vitest, Node env, `src/**/*.test.ts`); worker CLI (7), worker concurrency (15), scripts smoke (40) run via separate configs; UI smoke (109 assertions) and interactive i18n smoke run against a real `next start` + temp DB.
+- 687 unit/integration tests (vitest, Node env, `src/**/*.test.ts`); worker CLI (7), worker concurrency (15), scripts smoke (40) run via separate configs; UI smoke and interactive i18n smoke run against a real `next start` + temp DB.
 - CI (GitHub Actions): Ubuntu matrix Node 22/24/26 (install/lint/test/format/build) + `windows-fresh-install` job (Node 24) guarding against native-build regressions.
 
 ## Known limitations
 
-- Container has **no systemd** (PID 1 = docker-init); supervisor manages production processes; container rebuild does not auto-start services (platform limitation).
-- Production DB and backups live under `/workspace` (platform persistent volume, xfs `/dev/sdb`).
+- Container has **no systemd** (PID 1 = docker-init); supervisor manages cloudflared and system services, but **domain-monitor is started by the container entrypoint** (not supervisor-managed in the current container — `supervisorctl` cannot restart it; restart = `kill` + entrypoint/manual `next start` or a full container restart).
+- The scheduled backup cron/script from earlier handovers is **not present** in the current container (see `DATABASE.md`).
+- Production DB and backups live under `/tmp/domain-monitor` (current container); `DATABASE_URL` points there.
 - `DNS_DOH_ENDPOINT` is read from env but not listed in `.env.example` (doc gap).
 - Node 25 is not an officially supported version (works via N-API prebuilds, but CI tests 22/24/26 only).

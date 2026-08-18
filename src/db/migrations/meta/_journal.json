@@ -43,6 +43,13 @@
       "when": 1786711772349,
       "tag": "0005_equal_medusa",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786979494453,
+      "tag": "0006_black_bloodscream",
+      "breakpoints": true
     }
   ]
 }
