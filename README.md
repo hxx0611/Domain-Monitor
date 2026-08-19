@@ -96,11 +96,12 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 
 ### Delivery Worker
 
-> **Availability note (v0.8.2):** the worker ships and is fully tested, but **automatic delivery is not yet enabled** on the production deployment of this project (the `tsx` runtime the worker CLI requires is not installed there). Expiration-reminder evaluation and delivery are ready in the codebase; enable them by installing the runtime dependency and scheduling `pnpm worker` via cron. The manual expiration / registration platform / reminder **UI and rule configuration are fully live** regardless.
+> **Availability note (v0.8.3):** the worker is **enabled in production** — the hourly watchdog (`scripts/worker-watchdog.sh`) runs as a single instance and ticks every hour (`tsx --conditions=react-server scripts/worker.ts --limit 50`). Expiration-reminder evaluation and delivery are live; real notification delivery is exercised only through explicitly approved safety gates (no real Telegram/Webhook/Email sends have been performed as part of this release).
 
-- One-shot CLI (`pnpm worker`) — schedule with cron, no daemon, no HTTP endpoint
+- One-shot CLI (`pnpm worker`) — schedule with cron or the bundled watchdog, no daemon, no HTTP endpoint
 - **Automatic Event → Delivery generation inside the check transaction** (atomic)
 - **Expiration reminders**: `evaluateExpirationReminders()` runs inside the worker tick and emits `expiration_reminder` events (source `expiration`) for domains whose reminder day has arrived, deduplicated so a domain is reminded once per day
+- **Event → Delivery together**: `insertEventsAndGenerateDeliveries` creates the event and its deliveries in one step; concurrent ticks are safe (SQLite CAS) — at most one event, one delivery and one sender invocation per reminder per day
 - Stale `sending` recovery (crash-safe) and concurrent-worker safety (SQLite CAS)
 
 ### Bilingual UI
@@ -136,14 +137,14 @@ A check writes its snapshot, its events, and the matching pending deliveries in 
 
 ## Built for Reliability
 
-- **761 tests** covering services, state machines, senders, the delivery worker, manual expiration & reminders, the i18n core, and admin authentication
+- **763 tests** covering services, state machines, senders, the delivery worker, manual expiration & reminders, worker runtime fixes (barrel import + delivery generation), the i18n core, and admin authentication
 - **SSRF-guarded** webhook and email senders
 - **SQLite concurrency tested** — atomic claim (CAS) + `busy_timeout = 5000`
 - **Self-hosted** — your data stays on your machine
 
 ## Current Status
 
-**Current release: v0.8.2 — Manual Expiration & Reminders**
+**Current release: v0.8.3 — Production Worker & Expiration Reminder**
 
 Supported today:
 
@@ -156,7 +157,7 @@ Supported today:
 - HTTP health checks
 - Notification system (telegram / email / webhook channels, rules — including `expiration_reminder` — delivery history, manual retry)
 - Notification configuration UI (channel & rule CRUD, Telegram token setup with `getMe` verification)
-- Delivery worker (automatic Event → Delivery → Send pipeline, one-shot CLI + external cron; **not yet enabled in production**, see the availability note above)
+- Delivery worker (automatic Event → Delivery → Send pipeline; **enabled in production** via the hourly watchdog — see the availability note above)
 - Admin authentication (setup wizard, login/logout, recovery code, protected pages)
 - Encrypted secret storage (AES-256-GCM, `ENCRYPTION_KEY`, legacy env fallback)
 - Bilingual UI (English / 简体中文, cookie-based locale switching)
@@ -187,7 +188,7 @@ Summary shape (stable):
 { "expirationEvents": 0, "recovered": 0, "attempted": 0, "sent": 0, "failed": 0, "skipped": 0 }
 ```
 
-- `expirationEvents` — expiration-reminder events emitted this tick (V0.8.2)
+- `expirationEvents` — expiration-reminder events emitted this tick (V0.8.3)
 - `recovered` — stale `sending` deliveries moved back to `pending` (crash recovery)
 - `attempted` — deliveries this tick tried to deliver
 - `sent` / `failed` / `skipped` — outcomes (`skipped` = a concurrent worker claimed it first)
@@ -227,7 +228,7 @@ Recommended: the CLI worker plus an external scheduler (system cron or equivalen
 pnpm test
 ```
 
-Current test suite: **761 tests (50 files)**, covering domain validation (including manual expiration fields and reminder-day normalization), RDAP parsing and fallback ownership semantics, registration-platform validation, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine (including the `expiration_reminder` event type), SSRF-guarded webhook and email senders, automatic Event → Delivery generation, expiration-reminder evaluation, the delivery worker, admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
+Current test suite: **763 tests (51 files)**, covering domain validation (including manual expiration fields and reminder-day normalization), RDAP parsing and fallback ownership semantics, registration-platform validation, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine (including the `expiration_reminder` event type), SSRF-guarded webhook and email senders, automatic Event → Delivery generation, expiration-reminder evaluation, the delivery worker (including concurrent-tick dedup / CAS E2E), admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
 
 Also run before pushing changes:
 
@@ -281,7 +282,8 @@ pnpm db:studio     # Open the visual database browser
 - [x] **V0.7.3** — Monitoring error clarity
 - [x] **V0.8.0** — Admin authentication, Telegram notifications & encrypted secrets
 - [x] **V0.8.1** — RDAP ownership & expiration fixes (bugfix release)
-- [x] **V0.8.2** — Manual expiration, registration platform & expiration reminders (worker delivery not yet enabled in production)
+- [x] **V0.8.2** — Manual expiration, registration platform & expiration reminders (worker delivery enabled in production in v0.8.3)
+- [x] **V0.8.3** — Production Worker enablement (hourly watchdog, expiration reminder delivery pipeline, worker runtime fixes) + migration journal repair for 0007
 
 ## Contributing
 

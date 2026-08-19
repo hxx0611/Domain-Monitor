@@ -26,7 +26,11 @@ import { domains, type Domain } from "@/db/schema";
 import { isNotNull } from "drizzle-orm";
 import { getAllExpirationReminders } from "@/lib/domains/repository";
 import type { NotificationDb } from "./repository";
-import { insertNotificationEvents } from "./repository";
+// Phase 11D: insert the reminder event AND generate its deliveries in one
+// call, so a reminder recorded by the worker actually produces a pending
+// delivery (previously only the event row was inserted — the event existed
+// but nothing ever delivered it).
+import { insertEventsAndGenerateDeliveries } from "./service";
 import { expirationReminderEvent } from "./events";
 
 /**
@@ -133,6 +137,8 @@ export function evaluateExpirationReminders(
     return 0;
   }
 
-  const ids = insertNotificationEvents(target, events);
+  // Phase 11D: insert + generate deliveries atomically (new events only —
+  // dedup-key hits return null ids and never re-generate deliveries).
+  const ids = insertEventsAndGenerateDeliveries(target, events);
   return ids.filter((id) => id !== null).length;
 }

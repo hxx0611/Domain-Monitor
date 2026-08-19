@@ -1,11 +1,11 @@
 # Domain-Monitor — Testing
 
-> Baseline: **761 passed** (50 files) as of v0.8.2. Commands below assume `cd /workspace/Domain-Monitor`.
+> Baseline: **763 passed** (51 files) as of v0.8.3. Commands below assume `cd /workspace/Domain-Monitor`.
 
-## Unit & integration tests (761)
+## Unit & integration tests (763)
 
 ```bash
-pnpm test                          # vitest run — src/**/*.test.ts (761 tests / 50 files)
+pnpm test                          # vitest run — src/**/*.test.ts (763 tests / 51 files)
 ```
 
 Covers: domains, RDAP, DNS/SSL/HTTP clients+normalize+diff+service+actions, error classifier, i18n (incl. dictionary symmetry + machine-value rules), notifications (events/rules/repository/delivery/worker), HTTP SSRF predicates, **admin authentication** (sessions, setup/login/logout/recovery, page & Server Action access guards), **encrypted secret storage** (AES-256-GCM round-trip, upsert, cascade, decrypt failure), **Telegram token actions** (getMe verification, encrypted save, edit keep-token semantics), **Telegram sender secret resolution** (encrypted → env fallback → controlled failure) including a real-network-mocked E2E (`telegram-sender-e2e.test.ts`), **RDAP fallback + ownership semantics** (`fallback.test.ts`, `rdap-link.test.ts`: exact / parent / no-object persistence, canonical-name mismatch, no fallback on network/timeout/429/500).
@@ -76,6 +76,6 @@ pnpm exec vitest run --config scripts/vitest.smoke.config.ts
 node scripts/ui-smoke.mjs && node scripts/interactive-switch-smoke.mjs
 ```
 
-Expected: 761 + 15 + 7 + 40 + UI smoke + interactive smoke all green.
+Expected: 763 + 15 + 7 + 40 + UI smoke + interactive smoke all green.
 
-> Note (v0.8.2): the worker CLI / concurrency / scripts smoke configs (`vitest.phase2/phase3/smoke.config.ts`) require the `tsx` runtime, which is **not installed in this container** — those configs are environment-blocked here, not release failures. The default `pnpm test` (761/50) is the release gate.
+> Note (v0.8.3): the worker CLI / concurrency / scripts smoke configs (`vitest.phase2/phase3/smoke.config.ts`) require the `tsx` runtime — installed as a devDependency since v0.8.3 (workspace and production directory), so those configs are runnable here. The default `pnpm test` (763/51) is the release gate.

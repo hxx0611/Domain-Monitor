@@ -18,7 +18,14 @@ import { EmailSender } from "./email";
 import { WebhookSender } from "./webhook";
 import { TelegramSender } from "./telegram";
 import { getChannelSecret } from "../secrets";
-import { getDomainById } from "@/lib/domains";
+// Phase 11D: import from the repository module directly, NOT the
+// `@/lib/domains` barrel. The barrel re-exports `./actions`, which pulls
+// in `next/cache`; under `--conditions=react-server` (worker CLI) and
+// NODE_ENV=production that resolves next's react-server *source* files,
+// which tsx's CJS transform breaks on (`React.createContext is not a
+// function`). The worker only needs the repository lookup, so bypass the
+// barrel entirely.
+import { getDomainById } from "@/lib/domains/repository";
 
 /** Instantiate the sender for a channel type. Email/webhook (V0.6+) / telegram (V0.7.x+9H). */
 export function createSender(type: ChannelType): DeliverySender {

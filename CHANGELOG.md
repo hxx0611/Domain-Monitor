@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.3] — 2026-08-19
+
+### Added
+
+- **Production Worker watchdog** (Phase 11D): `scripts/worker-watchdog.sh` — a single-instance hourly scheduler (flock-guarded, self-contained, does not depend on `pnpm` being on `PATH`). Each tick runs the worker exactly once (`./node_modules/.bin/tsx --conditions=react-server scripts/worker.ts --limit 50`), the process exits naturally after the tick, and a non-zero tick exit is recorded and the loop continues to the next hour. `TERM` / `INT` exit cleanly.
+- **Hourly expiration reminder processing**: the watchdog runs the worker every hour; `evaluateExpirationReminders()` emits one deduplicated `expiration_reminder` event per domain once the reminder day arrives, flowing through the existing rule → channel → delivery pipeline.
+- **Expiration reminder → delivery pipeline** (Phase 11D): `insertEventsAndGenerateDeliveries` creates the event and its deliveries together; each delivery is claimed with a CAS (`UPDATE … WHERE status='pending'`), so concurrent ticks produce at most one event, one delivery and one sender invocation.
+- **Migration journal repair** (Phase 11E): the manually-created migration `0007_manual_expiration` (Phase 11A) was not registered in the drizzle journal when it was authored. It was applied to the production database manually at deploy time, but `_journal.json` never contained an entry, so a fresh environment running `drizzle-kit migrate` would stop at `0006` and miss the 11A schema. This release closes the bookkeeping gap: `_journal.json` now contains `idx: 7` (`tag: 0007_manual_expiration`, `when: 1787063220000`), `0007_snapshot.json` was generated (13 tables, `expiration_reminders` included), and the production `__drizzle_migrations` table was registered with the migration's sha256 hash. A fresh `0000 → 0007` migration was verified end-to-end; the migration itself was **not** re-executed on any database.
+
+### Fixed
+
+- **Worker crash under react-server / production conditions** (Phase 11D): `senders/factory.ts` imported notification senders through the `@/lib/domains` barrel, which pulled in `next/cache` and crashed with `_react.default.createContext is not a function` when the worker ran under production conditions. The factory now imports from the repository module directly, bypassing the barrel.
+- **Expiration reminder events never produced deliveries** (Phase 11D): the reminder pipeline emitted an `expiration_reminder` event but did not generate deliveries, so the event could never be sent. Events and deliveries are now created together via `insertEventsAndGenerateDeliveries`.
+- **Expiration reminder dedup / delivery pipeline** (Phase 11D): concurrent tick E2E coverage (event `dedupKey` UNIQUE, delivery UNIQUE `(event_id, channel_id)`, CAS claim) guarantees at most one event / one delivery / one sender invocation per reminder per day.
+
+### Changed
+
+- Version bumped from v0.8.2 → **v0.8.3** (worker + release).
+- `src/db/migrations/meta/_journal.json` now has 8 entries (0000–0007); `src/db/migrations/meta/0007_snapshot.json` is added.
+
+### Compatibility
+
+- **tsx@4.23.12** added as a development dependency (workspace and production directory).
+- The worker invokes the bundled `tsx` executable directly (`./node_modules/.bin/tsx`), not a `pnpm`-based command.
+- Legacy notification senders (Telegram / Webhook / Email) and their secret resolution remain unchanged.
+
+### Notes
+
+- The worker is **enabled in production**: the watchdog (`scripts/worker-watchdog.sh`) is running as a single instance and ticks hourly (`--limit 50`). Real notification delivery was not exercised as part of this release; the real-notification safety gate remains a separate approved exercise.
+- The migration journal bookkeeping gap for `0007_manual_expiration` was **repaired in Phase 11E** (journal entry + snapshot + production `__drizzle_migrations` registration). No further journal changes are planned in this release.
+
 ## [v0.8.2] — 2026-08-18
 
 ### Added
