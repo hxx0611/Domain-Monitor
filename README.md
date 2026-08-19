@@ -83,6 +83,7 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 
 - Domain lifecycle events from DNS / SSL / HTTP checks
 - Channels: **Telegram**, **Email API**, and **Webhook**
+- **Test notifications** (v0.8.4): admin-triggered `Send Test Notification` on each Telegram channel — exactly one event + one delivery + one message through the existing factory/sender/encrypted-secret pipeline, explicitly labelled `Test Notification`, never routed through rules or expiry logic
 - Rule-based delivery matching (global or per-domain rules, by source / event type — including the `expiration_reminder` event type)
 - Notification configuration UI — channel CRUD (create / edit / toggle / delete), rule CRUD
 - Telegram bot tokens validated via `getMe` (server-side) and stored **AES-256-GCM encrypted** (`ENCRYPTION_KEY`), with legacy `TELEGRAM_BOT_TOKEN` env fallback
@@ -138,6 +139,7 @@ A check writes its snapshot, its events, and the matching pending deliveries in 
 ## Built for Reliability
 
 - **763 tests** covering services, state machines, senders, the delivery worker, manual expiration & reminders, worker runtime fixes (barrel import + delivery generation), the i18n core, and admin authentication
+- **780 tests** (v0.8.4) adds the controlled test-notification action contract (authorization, channel validation, dedup, single-send limits, leakage) and its real-DB integration path (encrypted-secret chain, sender success/failure, no domain/rule mutation)
 - **SSRF-guarded** webhook and email senders
 - **SQLite concurrency tested** — atomic claim (CAS) + `busy_timeout = 5000`
 - **Self-hosted** — your data stays on your machine
@@ -228,7 +230,7 @@ Recommended: the CLI worker plus an external scheduler (system cron or equivalen
 pnpm test
 ```
 
-Current test suite: **763 tests (51 files)**, covering domain validation (including manual expiration fields and reminder-day normalization), RDAP parsing and fallback ownership semantics, registration-platform validation, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine (including the `expiration_reminder` event type), SSRF-guarded webhook and email senders, automatic Event → Delivery generation, expiration-reminder evaluation, the delivery worker (including concurrent-tick dedup / CAS E2E), admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
+Current test suite: **780 tests (53 files)**, covering domain validation (including manual expiration fields and reminder-day normalization), RDAP parsing and fallback ownership semantics, registration-platform validation, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine (including the `expiration_reminder` event type), SSRF-guarded webhook and email senders, automatic Event → Delivery generation, expiration-reminder evaluation, the delivery worker (including concurrent-tick dedup / CAS E2E), the controlled test-notification action (authorization, channel validation, dedup, single-send limits, secret leakage), admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), and the data repositories.
 
 Also run before pushing changes:
 

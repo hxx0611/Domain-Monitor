@@ -89,6 +89,9 @@ const EVENT_LABELS: Record<string, string> = {
   ssl_cert_replaced: "SSL certificate replaced",
   ssl_status_changed: "SSL status changed",
   http_status_changed: "HTTP status changed",
+  // Phase 11G-A: admin-triggered test notification is rendered explicitly
+  // as a test message so recipients can never mistake it for a real alert.
+  test_notification: "Test Notification",
 };
 
 /** Telegram chat id: private chats are a positive integer; groups /

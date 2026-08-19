@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.4] — 2026-08-19
+
+### Added
+
+- **Controlled test notification capability** (Phase 11G-A): admin-triggered `sendTestNotificationAction(channelId)` with a "Send Test Notification" button on the Notifications → channel management UI (English + Chinese labels). The action is guarded by `requireAdmin()` and validates the channel (exists → enabled → `type === "telegram"` → encrypted token configured via `hasChannelSecret`, never reading the value in the action layer).
+- **Test notification event / delivery semantics**: exactly **1 event** (`source="test"`, `event_type="test_notification"`, `dedupKey = test-notification:<channelId>:<nonce>`) and exactly **1 delivery** created directly for the target channel — the rule engine is not involved, so no existing rule can make a test message send twice, and `dedupKey` UNIQUE absorbs same-nonce replay (`duplicate_request`).
+- **Existing pipeline reuse**: the test send goes through `createSender("telegram")` → `TelegramSender` → `getChannelSecret` (AES-256-GCM decryption of encrypted `notification_secrets`) → Telegram API → `deliverDelivery` state machine. No second sender, no env-token shortcut, no direct `fetch` in the action.
+- **Explicit test message labelling**: the Telegram event label renders `Test Notification` so recipients can never mistake it for a real alert.
+
+### Security
+
+- The action never returns tokens, ciphertext, `secretRef`s or the encryption key; failures are controlled user-safe messages (machine-readable codes: `unauthorized`, `channel_not_found`, `channel_disabled`, `unsupported_channel`, `secret_not_configured`, `no_domain`, `duplicate_request`, `send_failed`).
+- Test coverage proves: unauthenticated → `unauthorized` (no channel/event access), non-Telegram channel → `unsupported_channel`, no duplicate event/delivery on replay, `attempts = 1`, `error = null` on success, and zero real Telegram API calls during tests (stubbed fetch + fake `AAH_*` token fixtures).
+
+### Notes
+
+- **Not deployed to production as part of this release step's code gate** — deployment is performed immediately after this commit for the Phase 11G-REAL gate (exactly one real Telegram send through the production UI).
+- Real notification delivery remains gated: the Phase 11G-REAL exercise sends exactly one real Telegram test message through the production channel after this release is deployed.
+
 ## [v0.8.3] — 2026-08-19
 
 ### Added

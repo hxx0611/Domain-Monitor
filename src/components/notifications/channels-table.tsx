@@ -4,6 +4,7 @@ import { lookup } from "@/lib/i18n/display";
 import { EnabledBadge } from "./badges";
 import { AddChannelButton, ChannelToggleButton, EditChannelButton } from "./channel-form";
 import { DeleteButton } from "./delete-button";
+import { TestNotificationButton } from "./test-notification-button";
 
 /**
  * Map the (English) config field labels produced by the actions layer to
@@ -126,6 +127,14 @@ export function ChannelsTable({ channels, dict }: { channels: ChannelView[]; dic
                       <EditChannelButton channel={channel} dict={dict} />
                       <ChannelToggleButton channel={channel} dict={dict} />
                       <DeleteButton dict={dict} kind="channel" id={channel.id} />
+                      <TestNotificationButton
+                        channelId={channel.id}
+                        labels={{
+                          send: lookup(dict, "notifications.testNotification.send"),
+                          sending: lookup(dict, "notifications.testNotification.sending"),
+                          success: lookup(dict, "notifications.testNotification.success"),
+                        }}
+                      />
                     </div>
                   </td>
                 </tr>

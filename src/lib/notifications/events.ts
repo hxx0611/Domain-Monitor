@@ -194,6 +194,8 @@ export function eventTypeLabel(eventType: NotificationEventType): string {
       return "HTTP status changed";
     case "expiration_reminder":
       return "Expiration reminder";
+    case "test_notification":
+      return "Test notification";
   }
 }
 

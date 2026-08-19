@@ -9,7 +9,7 @@
  */
 
 /** Which monitoring module produced the event. */
-export type NotificationSource = "dns" | "ssl" | "http" | "expiration";
+export type NotificationSource = "dns" | "ssl" | "http" | "expiration" | "test";
 
 /** Concrete event kinds the pipeline understands. */
 export type NotificationEventType =
@@ -18,7 +18,8 @@ export type NotificationEventType =
   | "ssl_cert_replaced"
   | "ssl_status_changed"
   | "http_status_changed"
-  | "expiration_reminder";
+  | "expiration_reminder"
+  | "test_notification";
 
 /** Delivery channel kinds supported (email + webhook since V0.6; telegram since V0.7.x). */
 export type ChannelType = "email" | "webhook" | "telegram";

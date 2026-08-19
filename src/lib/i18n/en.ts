@@ -326,6 +326,11 @@ export const en = {
       chatId: "Chat ID",
       legacyToken: "Legacy token",
     },
+    testNotification: {
+      send: "Send Test Notification",
+      sending: "Sending test notification…",
+      success: "Test notification sent successfully.",
+    },
     rulesTitle: "Notification Rules",
     rulesEmpty: {
       title: "No rules yet.",

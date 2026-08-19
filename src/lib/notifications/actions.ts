@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { randomUUID } from "node:crypto";
 import {
   createChannel,
+  createDelivery,
   createRule,
   deleteChannel,
   deleteRule,
@@ -12,6 +14,7 @@ import {
   getDelivery,
   getEvent,
   getRules,
+  insertNotificationEvents,
   retryDelivery,
   setChannelEnabled,
   setRuleEnabled,
@@ -33,8 +36,9 @@ import {
 } from "./senders/telegram";
 import { hasChannelSecret, setChannelSecret } from "./secrets";
 import { createSender } from "./senders/factory";
-import { getDomainById } from "@/lib/domains";
+import { getDomainById, getDomains } from "@/lib/domains";
 import { requireAdmin } from "@/lib/auth/admin";
+import { db } from "@/db";
 import type {
   ChannelType,
   DeliveryStatus,
@@ -184,6 +188,129 @@ export async function retryDeliveryAction(deliveryId: number): Promise<RetryDeli
 
   revalidatePath("/notifications");
   return { ok: true, status: result.status };
+}
+
+// ---------------------------------------------------------------------------
+// Controlled test notification (Phase 11G-A)
+// ---------------------------------------------------------------------------
+//
+// One admin-triggered, single-send test message through the SAME pipeline as
+// real notifications:
+//
+//   requireAdmin → channel validation → insert 1 event (source="test",
+//   event_type="test_notification", dedupKey = test-notification:<channelId>:
+//   <nonce>) → create EXACTLY 1 delivery for that channel (no rule engine) →
+//   createSender("telegram") → TelegramSender → getChannelSecret (encrypted
+//   notification_secrets) → Telegram API → deliverDelivery state machine.
+//
+// Hard limits (Phase 11G-A / 11G-REAL contract):
+//   - at most 1 event + 1 delivery + 1 sendMessage per invocation
+//   - replay of the same invocation (same nonce) is absorbed by the
+//     dedupKey UNIQUE constraint — no second event/delivery/message
+//   - never uses the rule engine: an existing expiration/http/ssl rule can
+//     never make a test notification send twice
+//   - never touches domains / reminders / rules / channels / secrets
+//   - never reads the token value here: only hasChannelSecret() presence
+//     check; the value is decrypted inside TelegramSender via the existing
+//     getChannelSecret resolver
+//   - only Telegram channels are supported (unsupported_channel otherwise)
+//
+// The action never returns tokens, ciphertext, secretRefs, or the
+// ENCRYPTION_KEY; errors are controlled user-safe messages.
+
+export type SendTestNotificationActionResult =
+  | { ok: true; status: DeliveryStatus; eventId: number; deliveryId: number }
+  | { ok: false; error: string; code: string };
+
+export async function sendTestNotificationAction(
+  channelId: number,
+): Promise<SendTestNotificationActionResult> {
+  if (!(await requireAdmin())) {
+    return { ok: false, error: UNAUTHORIZED_ERROR, code: "unauthorized" };
+  }
+
+  const channel = getChannel(channelId);
+  if (!channel) {
+    return { ok: false, error: "Channel not found.", code: "channel_not_found" };
+  }
+  if (channel.enabled !== 1) {
+    return { ok: false, error: "Channel is disabled.", code: "channel_disabled" };
+  }
+  if (channel.type !== "telegram") {
+    return {
+      ok: false,
+      error: "Test notifications are only supported for Telegram channels.",
+      code: "unsupported_channel",
+    };
+  }
+  // Presence check only — never read the token value in the action layer.
+  // The value is decrypted inside TelegramSender via getChannelSecret.
+  if (!hasChannelSecret(channel.id, "token")) {
+    return {
+      ok: false,
+      error: "Telegram token is not configured for this channel.",
+      code: "secret_not_configured",
+    };
+  }
+
+  // notification_events.domain_id is NOT NULL FK — reference an existing
+  // domain for row integrity. No domain data is read for the message and
+  // nothing is modified; the test message never names a domain.
+  const domains = getDomains();
+  if (domains.length === 0) {
+    return { ok: false, error: "No domain available for test notification.", code: "no_domain" };
+  }
+  const referenceDomainId = domains[0].id;
+
+  const nonce = randomUUID();
+  const dedupKey = `test-notification:${channelId}:${nonce}`;
+  const event: NotificationEvent = {
+    domainId: referenceDomainId,
+    source: "test",
+    eventType: "test_notification",
+    previousState: null,
+    currentState: JSON.stringify({ kind: "test_notification", channelId }),
+    occurredAt: new Date(),
+    dedupKey,
+  };
+
+  // Insert the event (dedupKey UNIQUE absorbs same-nonce replays) and create
+  // EXACTLY ONE delivery directly for the target channel — no rule engine.
+  const [eventId] = insertNotificationEvents(db, [event]);
+  if (eventId === null) {
+    return { ok: false, error: "Test notification was already sent.", code: "duplicate_request" };
+  }
+  const deliveryId = createDelivery(eventId, channel.id);
+  if (deliveryId === null) {
+    return {
+      ok: false,
+      error: "Test notification delivery could not be created.",
+      code: "delivery_conflict",
+    };
+  }
+
+  const eventRow = getEvent(eventId);
+  if (!eventRow) {
+    return { ok: false, error: "Test notification event is missing.", code: "event_missing" };
+  }
+
+  // Existing factory → existing sender → existing encrypted secret resolver.
+  const sender = createSender("telegram");
+  const result = await deliverDelivery(deliveryId, toNotificationEvent(eventRow), sender);
+
+  if (result.status === "skipped") {
+    return {
+      ok: false,
+      error: "Test notification could not be claimed.",
+      code: "claim_failed",
+    };
+  }
+  if (result.status === "failed") {
+    return { ok: false, error: result.error ?? "Test notification failed.", code: "send_failed" };
+  }
+
+  revalidatePath("/notifications");
+  return { ok: true, status: result.status, eventId, deliveryId };
 }
 
 // ---------------------------------------------------------------------------

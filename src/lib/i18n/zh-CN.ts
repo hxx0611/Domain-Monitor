@@ -324,6 +324,11 @@ export const zhCN = {
       chatId: "Chat ID",
       legacyToken: "旧版 Token",
     },
+    testNotification: {
+      send: "发送测试通知",
+      sending: "正在发送测试通知…",
+      success: "测试通知发送成功。",
+    },
     rulesTitle: "通知规则",
     rulesEmpty: {
       title: "还没有规则。",
