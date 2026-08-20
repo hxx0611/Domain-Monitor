@@ -147,7 +147,7 @@ flowchart LR
 
 ## 当前状态
 
-**当前版本：v0.8.8 — 域名/DNS action 覆盖、通知时区、Windows CI 修复**
+**当前版本：v0.8.9 — 文档与运维收尾**（v0.8.8 — 域名/DNS action 覆盖、通知时区、Windows CI 修复）
 
 当前支持：
 
@@ -293,6 +293,13 @@ pnpm db:studio     # 打开可视化数据库浏览器
 - [x] **V0.8.8** — Windows CI 临时 DB 删除修复（`closeDb()` helper）+ 域名/DNS action 测试覆盖（Phase 13B，849 测试）
 - [x] **运维（2026-08-20）** — 生产备份（Phase 13C，SQLite online backup API）、每日 QwenPaw cron `domain-monitor-daily-backup`（Asia/Shanghai 13:00、保留 7 天、NFS 持久存储、失败 → Telegram 告警）
 - [x] **审计（2026-08-20）** — Phase 13A 安全/可靠性审计（PASS）、Phase 13D SQLite→NFS 迁移 Preflight（**已阻止**：当前 NFSv3 `nolock` mount 不适合作为 SQLite 主库存储）
+- [x] **V0.8.9** — 文档与运维收尾（Phase 13A 审计报告归档；运维/容灾/交接文档更新；备份策略与 SQLite/NFS 限制已文档化）
+
+## 生产持久化（当前）
+
+- **生产 SQLite 仍位于本地 `/tmp` overlay**：`/tmp/domain-monitor/data/domain-monitor.db`。
+- **生产备份存储在 NFS 持久存储**（每日、保留 7 天）。
+- **警告**：当前 NFSv3 + `nolock` mount **未获批准**用于承载生产 SQLite 数据库（locking / fsync / hard-mount 语义）。PostgreSQL 或合适的本地持久卷仍是未来架构方向——**尚未实现**。
 
 ## 参与贡献
 

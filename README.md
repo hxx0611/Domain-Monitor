@@ -150,7 +150,7 @@ A check writes its snapshot, its events, and the matching pending deliveries in 
 
 ## Current Status
 
-**Current release: v0.8.8 — Domain/DNS Action Coverage, Notification Timezone, Windows CI Fix**
+**Current release: v0.8.9 — Documentation & Operations Closeout** (v0.8.8 — Domain/DNS Action Coverage, Notification Timezone, Windows CI Fix)
 
 Supported today:
 
@@ -297,6 +297,13 @@ pnpm db:studio     # Open the visual database browser
 - [x] **V0.8.8** — Windows CI temp-DB deletion fix (`closeDb()` helper) + domain/DNS action test coverage (Phase 13B, 849 tests)
 - [x] **Operations (2026-08-20)** — Production backup via SQLite online backup API (Phase 13C), daily QwenPaw cron `domain-monitor-daily-backup` (13:00 Asia/Shanghai, 7-day retention, NFS persistent storage, failure → Telegram alert)
 - [x] **Audit (2026-08-20)** — Phase 13A security/reliability audit (PASS), Phase 13D SQLite→NFS migration preflight (**blocked**: current NFSv3 `nolock` mount is not suitable for a SQLite primary DB)
+- [x] **V0.8.9** — Documentation & Operations Closeout (Phase 13A audit report archived; operations/disaster-recovery/handover docs updated; backup strategy + SQLite/NFS restriction documented)
+
+## Production persistence (current)
+
+- **Production SQLite remains on local `/tmp` overlay**: `/tmp/domain-monitor/data/domain-monitor.db`.
+- **Production backups are stored on NFS persistent storage** (daily, 7-day retention).
+- **WARNING**: the current NFSv3 + `nolock` mount is **NOT approved** for hosting the production SQLite database (locking / fsync / hard-mount semantics). PostgreSQL or an appropriate persistent local volume remains a future architecture option — **not implemented**.
 
 ## Contributing
 

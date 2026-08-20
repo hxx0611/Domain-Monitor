@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.9] — 2026-08-20
+
+**Documentation / Operations Closeout**
+
+### Added
+
+- **Phase 13A audit report archive** — full security/reliability audit report (`docs/PHASE13A-AUDIT-REPORT.md`) with a `Post-Audit Status` appendix recording the state of every follow-up phase (13B tests, 13C backup, 13C-1 scheduler, 13D preflight).
+- **Documented production backup strategy** — daily SQLite online backup (Phase 13C/13C-1), retention 7 days, NFS persistent backup directory, backup file permission 600, failure → Telegram alert, restore drill PASS.
+- **Documented SQLite/NFS restriction** — Phase 13D preflight conclusion: the current NFSv3 `nolock` mount is **NOT approved** for hosting the production SQLite database.
+- **Documented current production persistence strategy** — production SQLite remains on the local `/tmp` overlay; backups are the recovery source.
+- Updated project/operations/disaster-recovery documentation (handovers, operations runbook, deployment handover, architecture decisions, testing guide).
+
+### Changed
+
+- README roadmap / version status synchronized to v0.8.9.
+- Testing documentation updated (849 tests / 57 files; domain/DNS action coverage listed).
+- Handover documentation updated (project / ChatGPT handover).
+- Disaster recovery documentation updated (backup status, honest gaps, NFS warning).
+- Database / operations documentation updated (backup & restore, SQLite-on-NFS warning).
+
+### Important
+
+- **Production SQLite remains on local `/tmp` overlay** (`/tmp/domain-monitor/data/domain-monitor.db`).
+- **Production backups are stored on NFS persistent storage.**
+- **Current NFSv3 + `nolock` mount is NOT approved for hosting the production SQLite database.**
+- **PostgreSQL or an appropriate persistent local volume remains a future architecture option** (not implemented).
+
 ## [v0.8.8] — 2026-08-20
 
 ### Fixed
