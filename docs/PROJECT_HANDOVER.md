@@ -1,6 +1,6 @@
 # Domain-Monitor — Project Handover
 
-> AI-to-AI handover. Updated 2026-08-19 for v0.8.3. GitHub `hxx0611/Domain-Monitor` is the **source of truth for code**; this document describes the project, its architecture, and how to continue working on it safely.
+> AI-to-AI handover. Updated 2026-08-20 for v0.8.8. GitHub `hxx0611/Domain-Monitor` is the **source of truth for code**; this document describes the project, its architecture, and how to continue working on it safely.
 
 ## Project overview
 
@@ -23,12 +23,18 @@
 - **Manual expiration & reminders** (V0.8.2 / Phase 11A): `expiration_source` (`rdap` default / `manual`), manual registration date / expiration date / registration platform (validated presets + custom HTTPS URL) / management URL; manual dates are never overwritten by RDAP refreshes; per-domain `expiration_reminders` (unique domain+days) evaluated by the worker as `expiration_reminder` events (source `expiration`)
 - **Production Worker enablement** (V0.8.3 / Phase 11D): hourly watchdog (`scripts/worker-watchdog.sh`, single-instance flock, direct `tsx` invocation) runs the worker every hour; two worker runtime defects fixed (senders factory barrel import crashed under react-server/production conditions; `expiration_reminder` events did not generate deliveries — now `insertEventsAndGenerateDeliveries` creates event+deliveries together); concurrent-tick E2E (dedup key UNIQUE, delivery UNIQUE(event_id, channel_id), CAS) guarantees at most one event / delivery / sender invocation per reminder per day
 - **Migration journal repair** (V0.8.3 / Phase 11E): `0007_manual_expiration` (Phase 11A) was applied to production manually but never registered in `_journal.json`; Phase 11E repaired the bookkeeping — journal `idx: 7` added, `0007_snapshot.json` generated, production `__drizzle_migrations` registered with the migration hash, and a fresh `0000 → 0007` migration verified (no re-execution of 0007)
+- **Controlled test-notification action** (V0.8.4 / Phase 11G): `sendTestNotificationAction` — authorized, deduplicated (once per channel per 5 minutes), single-send limits, zero leakage
+- **Notification timezone** (V0.8.5–V0.8.7 / Phase 11J): channel-level IANA timezone in `notification_channels.config`, `Intl.DateTimeFormat` rendering, zero-migration (default UTC), 800 → 813 tests
+- **Windows CI temp-DB fix** (V0.8.8 / Phase 12A): `src/db/index.ts` exports `closeDb()` helper; `rdap-link.test.ts` closes the connection before cleanup; `rmSync` with retry fallback; Windows CI passes cleanly
+- **Domain/DNS action test coverage** (V0.8.8 / Phase 13B): `src/lib/domains/actions.test.ts` (31 tests) + `src/lib/dns/actions.test.ts` (5 tests) = 36 tests, 849/849 all green, business code zero changes
+- **Production backup** (Phase 13C/13C-1, 2026-08-20): `scripts/backup-db.js` — better-sqlite3 official online backup API, NFS persistent directory, daily QwenPaw cron `domain-monitor-daily-backup` (0 13 * * * Asia/Shanghai), 7-day retention, failure → Telegram alert, restore drill PASS
+- **SQLite→NFS migration preflight** (Phase 13D, 2026-08-20): **STOP / Migration blocked** — current NFSv3 `nolock` mount is unsuitable for a SQLite primary DB; PostgreSQL or a local persistent volume is the future direction
 
 ## Current version
 
-- **v0.8.3 — Production Worker & Expiration Reminder** (release over v0.8.2)
-- Git commit: see `git rev-parse HEAD` / `origin/main` (release commit for v0.8.3)
-- GitHub Release: **v0.8.3** (tag `v0.8.3`); **v0.8.2 / v0.8.1 / v0.8.0 tags and releases preserved**
+- **v0.8.8 — Domain/DNS Action Coverage, Notification Timezone, Windows CI Fix** (release over v0.8.3)
+- Git commit: `a6be6b6` (origin/main, Phase 13B test coverage); v0.8.8 release tag at `28499d1`
+- GitHub Release: **v0.8.8** (tag `v0.8.8`); **v0.8.7 / v0.8.6 / v0.8.5 / v0.8.4 / v0.8.3 / v0.8.2 / v0.8.1 / v0.8.0 tags and releases preserved**
 - The `v0.7.3` tag still points at `fe4b704` (never moved); **no v0.7.3 GitHub Release was ever published** — the v0.7.2/v0.7.3 eras exist only as git tags/commits.
 
 ## Tech stack
@@ -43,7 +49,7 @@
 | i18n      | Hand-rolled dictionary + cookie                                      | No next-intl, no middleware, no URL prefixes                        |
 | Auth      | Node built-in `crypto` (scrypt + HMAC-SHA256)                        | Signed session cookie, no third-party auth                          |
 | Secrets   | AES-256-GCM via Node `crypto`                                        | `ENCRYPTION_KEY` env; `iv:tag:ciphertext` in DB                     |
-| Tests     | vitest ^4.1.10                                                       | 763 tests / 51 files                                                |
+| Tests     | vitest ^4.1.10                                                       | 849 tests / 57 files                                                |
 
 ## Directory structure (src/)
 
@@ -111,13 +117,13 @@ test/                     # vitest helpers, server-only stub
 
 ## Test architecture
 
-- 763 unit/integration tests (vitest, Node env, `src/**/*.test.ts`); worker CLI (7), worker concurrency (15), scripts smoke (40) run via separate configs; UI smoke and interactive i18n smoke run against a real `next start` + temp DB.
+- 849 unit/integration tests (vitest, Node env, `src/**/*.test.ts`); worker CLI (7), worker concurrency (15), scripts smoke (40) run via separate configs; UI smoke and interactive i18n smoke run against a real `next start` + temp DB.
 - CI (GitHub Actions): Ubuntu matrix Node 22/24/26 (install/lint/test/format/build) + `windows-fresh-install` job (Node 24) guarding against native-build regressions.
 
 ## Known limitations
 
 - Container has **no systemd** (PID 1 = docker-init); supervisor manages cloudflared and system services, but **domain-monitor is started by the container entrypoint** (not supervisor-managed in the current container — `supervisorctl` cannot restart it; restart = `kill` + entrypoint/manual `next start` or a full container restart).
-- The scheduled backup cron/script from earlier handovers is **not present** in the current container (see `DATABASE.md`).
-- Production DB and backups live under `/tmp/domain-monitor` (current container); `DATABASE_URL` points there.
+- **Production backup (Phase 13C/13C-1, 2026-08-20) is implemented**: `scripts/backup-db.js` (better-sqlite3 online backup API, mode 600) → NFS persistent directory, daily QwenPaw cron `domain-monitor-daily-backup` (`0 13 * * *` Asia/Shanghai), retention 7 days, failure → Telegram alert. Restore drill PASS. **Backup ≠ primary persistence**.
+- Production DB lives at `/tmp/domain-monitor/data/domain-monitor.db` (current container); `DATABASE_URL` points there. **Do NOT point it at the NFS mount** (Phase 13D: NFSv3 `nolock` is unsuitable for a SQLite primary DB; PostgreSQL or a local persistent volume is the future direction).
 - `DNS_DOH_ENDPOINT` is read from env but not listed in `.env.example` (doc gap).
 - Node 25 is not an officially supported version (works via N-API prebuilds, but CI tests 22/24/26 only).

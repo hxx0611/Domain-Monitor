@@ -71,6 +71,7 @@
 - Local: `sqlite3 .backup` → `PRAGMA integrity_check` → atomic `mv` → keep 14.
 - Off-site (V0.7.3, 6M): rclone → Cloudflare R2 (`domain-monitor-backups/daily/`), upload to `.uploading` key → byte-size verification → `moveto` publish → remote keep 30. Upload failure never affects local backup or app.
 - Recovery: restore to temp path → integrity check → explicit target + `--force` semantics to avoid overwriting the wrong DB.
+- **Current production (Phase 13C/13C-1, 2026-08-20)**: `scripts/backup-db.js` uses the **better-sqlite3 official online backup API** (read-only source, consistent snapshot while next-server/worker write) to an **NFS persistent directory** (mode 600, survives container rebuild). Daily QwenPaw cron `domain-monitor-daily-backup` (`0 13 * * *` Asia/Shanghai), retention 7 days, failure → `backup-failures.log` + Telegram alert. Restore drill PASS. **Backup ≠ primary DB persistence** — the DB stays on `/tmp` overlay (Phase 13D blocked SQLite-on-NFS migration: NFSv3 `nolock` unsuitable for SQLite locking; PostgreSQL or a local persistent volume is the future direction).
 
 ## Environment facts that shape decisions
 

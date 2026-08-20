@@ -140,15 +140,17 @@ A check writes its snapshot, its events, and the matching pending deliveries in 
 
 ## Built for Reliability
 
-- **763 tests** covering services, state machines, senders, the delivery worker, manual expiration & reminders, worker runtime fixes (barrel import + delivery generation), the i18n core, and admin authentication
+- **849 tests** covering services, state machines, senders, the delivery worker, manual expiration & reminders, worker runtime fixes (barrel import + delivery generation), the i18n core, admin authentication, domain/DNS action coverage, and the production backup mechanism
 - **780 tests** (v0.8.4) adds the controlled test-notification action contract (authorization, channel validation, dedup, single-send limits, leakage) and its real-DB integration path (encrypted-secret chain, sender success/failure, no domain/rule mutation)
+- **813 tests** (v0.8.7) adds notification timezone IANA validation + `Intl` rendering
+- **849 tests** (v0.8.8) adds domain/DNS action coverage (Phase 13B, 36 tests)
 - **SSRF-guarded** webhook and email senders
 - **SQLite concurrency tested** — atomic claim (CAS) + `busy_timeout = 5000`
 - **Self-hosted** — your data stays on your machine
 
 ## Current Status
 
-**Current release: v0.8.3 — Production Worker & Expiration Reminder**
+**Current release: v0.8.8 — Domain/DNS Action Coverage, Notification Timezone, Windows CI Fix**
 
 Supported today:
 
@@ -232,7 +234,7 @@ Recommended: the CLI worker plus an external scheduler (system cron or equivalen
 pnpm test
 ```
 
-Current test suite: **813 tests (55 files)**, covering domain validation (including manual expiration fields and reminder-day normalization), RDAP parsing and fallback ownership semantics, registration-platform validation, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine (including the `expiration_reminder` event type), SSRF-guarded webhook and email senders, automatic Event → Delivery generation, expiration-reminder evaluation, the delivery worker (including concurrent-tick dedup / CAS E2E), the controlled test-notification action (authorization, channel validation, dedup, single-send limits, secret leakage), admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), notification timezone (IANA validation and `Intl` rendering), and the data repositories.
+Current test suite: **849 tests (57 files)**, covering domain validation (including manual expiration fields and reminder-day normalization), RDAP parsing and fallback ownership semantics, registration-platform validation, DNS normalization and diffing, SSL certificate parsing and diffing, HTTP status classification and SSRF-guarded fetching, the DNS/SSL/HTTP services, the notification event/rule/delivery state machine (including the `expiration_reminder` event type), SSRF-guarded webhook and email senders, automatic Event → Delivery generation, expiration-reminder evaluation, the delivery worker (including concurrent-tick dedup / CAS E2E), the controlled test-notification action (authorization, channel validation, dedup, single-send limits, secret leakage), admin authentication (sessions, setup/login/recovery), encrypted secret storage, Telegram sender secret resolution, the locale-aware i18n core (dictionaries, cookie fallback, client/server boundary), notification timezone (IANA validation and `Intl` rendering), the data repositories, and the domain/DNS action layer (create/update/refreshRdap/delete + admin guards).
 
 Also run before pushing changes:
 
@@ -288,6 +290,13 @@ pnpm db:studio     # Open the visual database browser
 - [x] **V0.8.1** — RDAP ownership & expiration fixes (bugfix release)
 - [x] **V0.8.2** — Manual expiration, registration platform & expiration reminders (worker delivery enabled in production in v0.8.3)
 - [x] **V0.8.3** — Production Worker enablement (hourly watchdog, expiration reminder delivery pipeline, worker runtime fixes) + migration journal repair for 0007
+- [x] **V0.8.4** — Controlled test-notification action (`sendTestNotificationAction`, authorized, deduped, single-send limits, leakage-safe)
+- [x] **V0.8.5** — Notification timezone (channel-level IANA timezone, `Intl.DateTimeFormat` rendering, zero migration)
+- [x] **V0.8.6** — Bugfix release
+- [x] **V0.8.7** — Notification timezone polish (validated channel timezone field in UI, 800 → 813 tests)
+- [x] **V0.8.8** — Windows CI temp-DB deletion fix (`closeDb()` helper) + domain/DNS action test coverage (Phase 13B, 849 tests)
+- [x] **Operations (2026-08-20)** — Production backup via SQLite online backup API (Phase 13C), daily QwenPaw cron `domain-monitor-daily-backup` (13:00 Asia/Shanghai, 7-day retention, NFS persistent storage, failure → Telegram alert)
+- [x] **Audit (2026-08-20)** — Phase 13A security/reliability audit (PASS), Phase 13D SQLite→NFS migration preflight (**blocked**: current NFSv3 `nolock` mount is not suitable for a SQLite primary DB)
 
 ## Contributing
 

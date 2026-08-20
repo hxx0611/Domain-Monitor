@@ -1,16 +1,16 @@
 # Domain-Monitor — ChatGPT Handover
 
-> Top-level AI handover. Read this first, then the referenced docs. Updated 2026-08-19 for v0.8.3 from the workspace where the project was built, deployed, and tested end-to-end.
+> Top-level AI handover. Read this first, then the referenced docs. Updated 2026-08-20 for v0.8.8 from the workspace where the project was built, deployed, and tested end-to-end.
 
 ## 1. What you are taking over
 
-**Domain-Monitor** — a self-hosted domain lifecycle monitoring platform (RDAP / DNS / SSL / HTTP monitoring, snapshot history, bilingual UI, notification pipeline with telegram/webhook/email delivery, error classification, admin authentication, encrypted secret storage, RDAP fallback ownership semantics, manual expiration & reminders, production worker watchdog). Built through 12+ released versions (v0.4.0 → v0.8.3), fully tested (763 tests), and **deployed to production** behind Cloudflare Tunnel on a container.
+**Domain-Monitor** — a self-hosted domain lifecycle monitoring platform (RDAP / DNS / SSL / HTTP monitoring, snapshot history, bilingual UI, notification pipeline with telegram/webhook/email delivery, error classification, admin authentication, encrypted secret storage, RDAP fallback ownership semantics, manual expiration & reminders, production worker watchdog). Built through released versions (v0.4.0 → v0.8.8), fully tested (849 tests), and **deployed to production** behind Cloudflare Tunnel on a container.
 
 ## 2. Code baseline
 
 - Repository: `https://github.com/hxx0611/Domain-Monitor`
-- main HEAD: the **v0.8.3 release commit** (see `git rev-parse origin/main`)
-- Release: **v0.8.3 — Production Worker & Expiration Reminder** (tag `v0.8.3`); **v0.8.2 — Manual Expiration & Reminders** (tag `v0.8.2`, preserved); **v0.8.1 — RDAP Ownership & Expiration Fixes** (tag `v0.8.1`, preserved); **v0.8.0 — Admin Authentication, Telegram Notifications & Encrypted Secrets** (tag `v0.8.0`, preserved)
+- main HEAD: the **v0.8.8 release commit** (see `git rev-parse origin/main`)
+- Release: **v0.8.8 — Domain/DNS Action Coverage, Notification Timezone, Windows CI Fix** (tag `v0.8.8`); **v0.8.3 — Production Worker & Expiration Reminder** (tag `v0.8.3`, preserved); **v0.8.2 — Manual Expiration & Reminders** (tag `v0.8.2`, preserved); **v0.8.1 — RDAP Ownership & Expiration Fixes** (tag `v0.8.1`, preserved); **v0.8.0 — Admin Authentication, Telegram Notifications & Encrypted Secrets** (tag `v0.8.0`, preserved)
 - Stack: Next.js 15.5.23 (App Router/Server Actions/RSC) · React 19 · Drizzle ORM 0.44.7 · better-sqlite3 13.0.3 · Node ≥22 · pnpm 11.2.2
 - Docs: `docs/PROJECT_HANDOVER.md` (project), `docs/ARCHITECTURE_DECISIONS.md` (why), `docs/DATABASE.md`, `docs/MONITORING.md`, `docs/NOTIFICATIONS.md`, `docs/TESTING.md`
 
@@ -47,13 +47,14 @@ cloudflared tunnel run domain-monitor (supervisor-managed)
 
 ## 6. Backups
 
-- **Scheduled local backups are NOT present in the current container** (legacy script/cron not recreated after Phase 9J; only the manual pre-deploy backup `domain-monitor.db.9J-backup-20260818-044056` exists next to the DB). Operator decision needed.
+- **Production backup IMPLEMENTED (Phase 13C/13C-1, 2026-08-20)**: `scripts/backup-db.js` uses the better-sqlite3 **SQLite online backup API** (consistent snapshot, read-only source) writing to an **NFS persistent directory** (outside the repo, survives container rebuild) with file mode **600**. **Daily schedule** via QwenPaw cron `domain-monitor-daily-backup` (`0 13 * * *` Asia/Shanghai, agent silent). **Retention 7 days** (auto-prune). **Failure** → exit 1 + `backup-failures.log` + **Telegram alert** (timestamp/exit/error only, no secrets). Restore drill PASS. **Backup ≠ primary DB persistence** — the production DB still lives on `/tmp` overlay and is lost on rebuild (restorable from NFS backup).
 - Off-site: R2 `daily/` keep 30 — **implemented & verified 2026-08-16** (upload + download-back + integrity + data check all PASS) in the original deployment.
+- **Do NOT move the primary DB to NFS** (Phase 13D blocked; NFSv3 `nolock` unsuitable for SQLite locking — see `DISASTER_RECOVERY.md`).
 - Recovery: `docs/DISASTER_RECOVERY.md`
 
 ## 7. Test status
 
-- **763 passed** (51 files) — includes admin auth (sessions, setup/login/logout/recovery, page/action guards), encrypted secret storage (AES-256-GCM round-trip/upsert/cascade/failure), Telegram token actions (getMe, encrypted save, edit keep-token), Telegram sender secret-resolution E2E (encrypted → env fallback → controlled failure, zero token leakage), **RDAP fallback + ownership** (exact/parent/no-object persistence, canonical-name mismatch, no fallback on network/timeout/429/500), **manual expiration & reminders** (source semantics, manual-vs-RDAP persistence, provider validation, reminder-day normalization, `expiration_reminder` event generation/dedup), and **worker runtime + E2E** (barrel-import fix under react-server conditions, event→delivery generation, concurrent-tick dedup / CAS — at most one event, one delivery, one sender invocation)
+- **849 passed** (57 files) — includes admin auth (sessions, setup/login/logout/recovery, page/action guards), encrypted secret storage (AES-256-GCM round-trip/upsert/cascade/failure), Telegram token actions (getMe, encrypted save, edit keep-token), Telegram sender secret-resolution E2E (encrypted → env fallback → controlled failure, zero token leakage), **RDAP fallback + ownership** (exact/parent/no-object persistence, canonical-name mismatch, no fallback on network/timeout/429/500), **manual expiration & reminders** (source semantics, manual-vs-RDAP persistence, provider validation, reminder-day normalization, `expiration_reminder` event generation/dedup), **worker runtime + E2E** (barrel-import fix under react-server conditions, event→delivery generation, concurrent-tick dedup / CAS — at most one event, one delivery, one sender invocation), and **domain/DNS action coverage** (Phase 13B: create/update/refreshRdap/delete + admin guards)
 - Plus worker CLI 7 + concurrency 15 + scripts smoke 40 + UI smoke + interactive i18n smoke (separate configs; the scripts configs require the `tsx` runtime, which is **installed** in this container since v0.8.3)
 - CI: Ubuntu Node 22/24/26 + Windows Node 24 fresh-install guard
 - Full commands: `docs/TESTING.md`
@@ -68,8 +69,9 @@ cloudflared tunnel run domain-monitor (supervisor-managed)
 ## 9. Known risks
 
 - **P0**: container rebuild does not auto-start services (platform limitation) — long-term production should move to a persistent host; the Tunnel setup is portable
-- **P1**: R2 single copy (no versioning); scheduled local backups absent in current container
-- **P2**: backup-failure alerting not implemented; `DNS_DOH_ENDPOINT` missing from `.env.example`
+- **P1**: R2 single copy (no versioning); primary DB on `/tmp` overlay (lost on rebuild; mitigated by daily NFS backup — **backup ≠ persistence**)
+- **P2**: `DNS_DOH_ENDPOINT` missing from `.env.example`
+- **P3**: SQLite→NFS primary migration **blocked** (Phase 13D); future direction is PostgreSQL or a local persistent volume
 - cloudflared token: working GitHub token is the `gh-token.txt`/credential-store pattern established with the operator (`.credentials/github.token` is 403)
 
 ## 10. Architecture that must NOT be casually changed
@@ -85,12 +87,13 @@ cloudflared tunnel run domain-monitor (supervisor-managed)
 
 ## 11. Unfinished items
 
-- Re-establish scheduled local backups in the current container (operator decision)
+- ~~Re-establish scheduled local backups in the current container~~ → **DONE (Phase 13C/13C-1)** — daily NFS backup + retention + failure alert live
 - R2 Object Versioning (recommended, dashboard action)
-- Backup failure alerting
+- ~~Backup failure alerting~~ → **DONE (Phase 13C-1)** — failure → Telegram alert
 - Container-rebuild auto-start (needs platform support or host migration)
 - `.env.example` should document `DNS_DOH_ENDPOINT` and `ENCRYPTION_KEY` (doc-only change, needs approval)
 - **Migration journal bookkeeping for 0007 was repaired in v0.8.3 (Phase 11E)** — journal `idx: 7` + `0007_snapshot.json` + production `__drizzle_migrations` registration; no further journal work scheduled
+- **Future DB persistence direction (Phase 13D)**: PostgreSQL or a local persistent volume; NFSv3 `nolock` is **not** suitable for the SQLite primary DB
 
 ## 12. Suggested next steps
 

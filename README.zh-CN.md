@@ -137,15 +137,17 @@ flowchart LR
 
 ## 为可靠性而构建
 
-- **763 个测试**（51 个文件），覆盖服务、状态机、发送器、投递 Worker、手动到期与提醒、Worker 运行时修复（barrel 导入 + 投递生成）、i18n 核心与管理员认证
+- **849 个测试**（57 个文件），覆盖服务、状态机、发送器、投递 Worker、手动到期与提醒、Worker 运行时修复（barrel 导入 + 投递生成）、i18n 核心、管理员认证、域名/DNS action 层与生产备份机制
 - **780 个测试**（v0.8.4，53 个文件），新增受控测试通知 action 契约（授权、channel 校验、去重、单次发送限制、secret 泄漏防护）及其真实 DB 集成路径（加密 secret 链路、发送成功/失败、domain/rule 不变）
+- **813 个测试**（v0.8.7），新增通知时区 IANA 校验 + `Intl` 渲染
+- **849 个测试**（v0.8.8），新增域名/DNS action 覆盖（Phase 13B，36 个测试）
 - **SSRF 防护**的 webhook 与 email 发送器
 - **SQLite 并发经过测试** —— 原子 claim（CAS）+ `busy_timeout = 5000`
 - **自托管** —— 数据留在你自己的机器上
 
 ## 当前状态
 
-**当前版本：v0.8.3 — 生产 Worker 与到期提醒**
+**当前版本：v0.8.8 — 域名/DNS action 覆盖、通知时区、Windows CI 修复**
 
 当前支持：
 
@@ -284,6 +286,13 @@ pnpm db:studio     # 打开可视化数据库浏览器
 - [x] **V0.8.1** — RDAP Ownership 与到期信息修复（bugfix 版本）
 - [x] **V0.8.2** — 手动到期、登记平台与到期提醒（Worker 自动投递已在 v0.8.3 于生产启用）
 - [x] **V0.8.3** — 生产 Worker 启用（每小时 watchdog、到期提醒投递管道、Worker 运行时修复）+ 0007 migration journal 登记修复
+- [x] **V0.8.4** — 受控测试通知 action（`sendTestNotificationAction`，授权、去重、单次发送限制、防泄漏）
+- [x] **V0.8.5** — 通知时区（channel 级 IANA 时区、`Intl.DateTimeFormat` 渲染、零迁移）
+- [x] **V0.8.6** — bugfix 版本
+- [x] **V0.8.7** — 通知时区打磨（UI 中校验 channel 时区字段，800 → 813 测试）
+- [x] **V0.8.8** — Windows CI 临时 DB 删除修复（`closeDb()` helper）+ 域名/DNS action 测试覆盖（Phase 13B，849 测试）
+- [x] **运维（2026-08-20）** — 生产备份（Phase 13C，SQLite online backup API）、每日 QwenPaw cron `domain-monitor-daily-backup`（Asia/Shanghai 13:00、保留 7 天、NFS 持久存储、失败 → Telegram 告警）
+- [x] **审计（2026-08-20）** — Phase 13A 安全/可靠性审计（PASS）、Phase 13D SQLite→NFS 迁移 Preflight（**已阻止**：当前 NFSv3 `nolock` mount 不适合作为 SQLite 主库存储）
 
 ## 参与贡献
 

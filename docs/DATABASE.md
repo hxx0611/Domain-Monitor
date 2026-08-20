@@ -79,9 +79,15 @@
 
 ## Backup / recovery
 
-- **Current container (as of v0.8.2)**: the production DB lives at `/tmp/domain-monitor/data/domain-monitor.db`. The legacy local-backup script (`/usr/local/bin/domain-monitor-backup`) and its cron entry documented in earlier handovers are **not present** in this container; the pre-deployment backup taken during Phase 9J is kept next to the DB as `domain-monitor.db.9J-backup-20260818-044056` (mode 600, integrity verified). A Phase 10E pre-repair backup is kept at `/tmp/domain-monitor-10E-backup-2026-08-18T12-47-09-880Z.db` (mode 600, integrity verified). A Phase 11A pre-deploy backup is kept at `/tmp/domain-monitor-11A-backup-2026-08-18T16-20-15-021539291Z.db` (mode 600, integrity verified). Re-establishing scheduled backups is an operator decision outside the release scope.
+- **Current container (as of v0.8.2)**: the production DB lives at `/tmp/domain-monitor/data/domain-monitor.db`. The legacy local-backup script (`/usr/local/bin/domain-monitor-backup`) and its cron entry documented in earlier handovers are **not present** in this container; the pre-deployment backup taken during Phase 9J is kept next to the DB as `domain-monitor.db.9J-backup-20260818-044056` (mode 600, integrity verified). A Phase 10E pre-repair backup is kept at `/tmp/domain-monitor-10E-backup-2026-08-18T12-47-09-880Z.db` (mode 600, integrity verified). A Phase 11A pre-deploy backup is kept at `/tmp/domain-monitor-11A-backup-2026-08-18T16-20-15-021539291Z.db` (mode 600, integrity verified).
+- **Production backup (Phase 13C/13C-1, 2026-08-20)**: `scripts/backup-db.js` uses the **better-sqlite3 official SQLite online backup API** (read-only source, consistent snapshot while next-server/worker write). Writes to an **NFS persistent directory** (outside the repo, survives container rebuild) with file mode **600**. **Daily schedule** via QwenPaw cron `domain-monitor-daily-backup` (`0 13 * * *` Asia/Shanghai). **Retention 7 days** (auto-prune older `domain-monitor-*.db`, never touches the production DB or non-backup files). **Failure**: exit 1 + `backup-failures.log` + **Telegram alert** (1616146471; timestamp/exit/error summary only — no DB content, no secrets). Restore drill PASS.
+- **Backup ≠ primary database persistence.** The production DB still lives on the `/tmp` overlay; container rebuild loses it and recovery relies on the latest NFS backup.
 - Off-site: Cloudflare R2 `domain-monitor-backups/daily/` via rclone (keep 30) — implemented & verified 2026-08-16 in the original deployment.
 - Restore procedure: see `DISASTER_RECOVERY.md` — always restore to a temp path first, verify integrity, then explicit target.
+
+## WARNING — SQLite on the current NFS mount (Phase 13D)
+
+Do **not** point `DATABASE_URL` at the current NFS mount (`NFSv3 + nolock + hard + local_lock=all`). Phase 13D preflight concluded **STOP / Migration blocked**: SQLite locking semantics, network filesystem reliability, fsync/write-cache semantics, and hard-mount stall behavior make this NFS unsuitable as a SQLite primary database. The DB must stay on a local filesystem; backups live on NFS (fine for restore-only usage). Future persistent options: **PostgreSQL** (recommended) or a **local persistent volume** with reliable SQLite locking.
 
 ## Production DB handling (current state)
 

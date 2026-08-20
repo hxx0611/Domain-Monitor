@@ -4,13 +4,14 @@
 
 ## Status of protections (factual)
 
-| Protection                                 | Status                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Local backups (keep 14)                    | **NOT PRESENT in the current container** — the legacy script/cron documented in earlier handovers was not recreated after the Phase 9J redeploy; the only local snapshot is the manual pre-deploy backup `domain-monitor.db.9J-backup-20260818-044056` (next to the production DB, mode 600). Re-establishing scheduled backups is an operator decision. |
-| **Off-site backup (R2, keep 30)**          | **IMPLEMENTED & VERIFIED 2026-08-16** in the original deployment — real upload to `domain-monitor-backups/daily/` succeeded, download-back + `integrity_check` + data verification passed. Still single-copy in R2 (no versioning yet).                                                                                                                  |
-| Automatic restart on process crash         | domain-monitor is started by the container entrypoint in the current container; cloudflared is supervisor-managed. Crash restart behavior for the app depends on the entrypoint wrapper.                                                                                                                                                                 |
-| Automatic restart on **container rebuild** | **NOT IMPLEMENTED** — platform limitation; after a rebuild services must be started manually, then verified                                                                                                                                                                                                                                              |
-| Off-machine / second-region copy           | NOT IMPLEMENTED (same volume local + R2 single copy)                                                                                                                                                                                                                                                                                                     |
+| Protection                                    | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local backups (keep 14)                       | **NOT PRESENT in the current container** — the legacy script/cron documented in earlier handovers was not recreated after the Phase 9J redeploy; the only local snapshot is the manual pre-deploy backup `domain-monitor.db.9J-backup-20260818-044056` (next to the production DB, mode 600). Re-establishing scheduled backups is an operator decision.                                                                                                                                                              |
+| **Production backup (Phase 13C, 2026-08-20)** | **IMPLEMENTED & VERIFIED** — daily SQLite online backup (`/tmp/domain-monitor/scripts/backup-db.js`, better-sqlite3 backup API, read-only source DB, write to NFS persistent directory). Schedule: **QwenPaw cron `domain-monitor-daily-backup` (0 13 * * * Asia/Shanghai, agent type silent)**. Retention: **7 days** (auto-prune). Failure: exit 1 + `backup-failures.log` + **Telegram alert** (1616146471, timestamp/exit/error only, no secrets). Restore drill PASS. Backup files: 600 permissions, not in Git. |
+| **Off-site backup (R2, keep 30)**             | **IMPLEMENTED & VERIFIED 2026-08-16** in the original deployment — real upload to `domain-monitor-backups/daily/` succeeded, download-back + `integrity_check` + data verification passed. Still single-copy in R2 (no versioning yet).                                                                                                                                                                                                                                                                               |
+| Automatic restart on process crash            | domain-monitor is started by the container entrypoint in the current container; cloudflared is supervisor-managed. Crash restart behavior for the app depends on the entrypoint wrapper.                                                                                                                                                                                                                                                                                                                              |
+| Automatic restart on **container rebuild**    | **NOT IMPLEMENTED** — platform limitation; after a rebuild services must be started manually, then verified                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Off-machine / second-region copy              | NOT IMPLEMENTED (same volume local + R2 single copy)                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## 1. Production DB corruption (e.g. `SQLITE_CORRUPT`, failing integrity_check)
 
@@ -80,6 +81,34 @@ node -e "const D=require('better-sqlite3');const db=new D('/tmp/domain-monitor/d
 ## Honest gaps
 
 - **Container rebuild auto-start: NOT IMPLEMENTED** (platform limitation; manual start required).
-- **Scheduled local backups: NOT PRESENT** in the current container (operator decision needed).
+- **Scheduled local backups: IMPLEMENTED 2026-08-20 (Phase 13C/13C-1)** — daily NFS backup + 7-day retention + failure alert. Note: **backup ≠ primary database persistence**; the production DB still lives on the `/tmp` overlay and is lost on container rebuild (restorable from the latest NFS backup).
 - **R2 Object Versioning: NOT ENABLED** (recommended; protects against accidental deletion/overwrite of remote backups).
-- **Backup failure alerting: NOT IMPLEMENTED**.
+- **SQLite → NFS primary DB migration: NOT IMPLEMENTED and NOT RECOMMENDED** (Phase 13D preflight blocked; see warning below).
+
+---
+
+## WARNING — Do NOT place the production SQLite database directly on the current NFSv3 `nolock` mount
+
+**Phase 13D (2026-08-20) preflight verdict: STOP / Migration blocked.**
+
+The NFS persistent mount in this environment is:
+
+```
+vers=3, rw, hard, nolock, noresvport, local_lock=all, timeo=600, retrans=2
+```
+
+Do **not** set `DATABASE_URL` to a path on this NFS mount. Reasons:
+
+- **SQLite locking semantics** — SQLite relies on POSIX file locks for concurrency; NFSv3 with `nolock` disables server-side lock management. POSIX record locks are only guaranteed to work between processes on the **same host** under `local_lock=all`; cross-host semantics are unreliable.
+- **Network filesystem reliability** — SQLite's official guidance is that database files on network filesystems are not reliable.
+- **fsync / write-cache semantics** — NFS write caching and `hard` mount behavior can reorder or lose durable writes that SQLite assumes.
+- **hard mount behavior** — a network partition or NFS server stall can hang every process holding the DB open (next-server + worker), with no clean failure path.
+
+The production DB must remain on a **local filesystem** (current: `/tmp/domain-monitor/data/domain-monitor.db`, an overlay that does not survive container rebuild — mitigated by the daily NFS backup).
+
+**Future persistent DB options:**
+
+1. **PostgreSQL（推荐 / recommended）** — a client-server database designed for network/remote storage.
+2. **本地持久卷 / local persistent volume** — a volume that provides reliable SQLite locking semantics (local block storage, not NFSv3 `nolock`).
+
+Do **not** use the current NFS mount as the SQLite primary database location.
