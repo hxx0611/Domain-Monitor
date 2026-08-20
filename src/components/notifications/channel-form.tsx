@@ -63,6 +63,9 @@ export function ChannelForm({
   const [type, setType] = useState<ChannelTypeValue>(channel?.type ?? "telegram");
   const [name, setName] = useState(channel?.name ?? "");
   const [chatId, setChatId] = useState(fieldValue(channel, "Chat ID"));
+  const [language, setLanguage] = useState(
+    fieldValue(channel, "Language") === "zh-CN" ? "zh-CN" : "en",
+  );
   const [secretRef, setSecretRef] = useState(fieldValue(channel, "Secret ref"));
   const [url, setUrl] = useState(fieldValue(channel, "URL"));
   const [to, setTo] = useState(fieldValue(channel, "To"));
@@ -138,6 +141,7 @@ export function ChannelForm({
           chatId,
           token,
           enabled,
+          language,
         });
         if (!result.ok) {
           setError(lookup(dict, `notifications.errors.${result.error}`));
@@ -166,6 +170,9 @@ export function ChannelForm({
     type: lookup(dict, "notifications.channelForm.type"),
     chatId: lookup(dict, "notifications.channelForm.chatId"),
     chatIdHint: lookup(dict, "notifications.channelForm.chatIdHint"),
+    language: lookup(dict, "notifications.channelForm.language"),
+    languageEnglish: lookup(dict, "notifications.channelForm.languageEnglish"),
+    languageChinese: lookup(dict, "notifications.channelForm.languageChinese"),
     secretRef: lookup(dict, "notifications.channelForm.secretRef"),
     secretRefHint: lookup(dict, "notifications.channelForm.secretRefHint"),
     botToken: lookup(dict, "notifications.channelForm.botToken"),
@@ -243,6 +250,19 @@ export function ChannelForm({
                 aria-label={labels.chatId}
               />
               <span className="mt-1 block text-xs text-gray-500">{labels.chatIdHint}</span>
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-gray-700">{labels.language}</span>
+              <select
+                className={inputClass}
+                value={language}
+                onChange={(event) => setLanguage(event.target.value as "en" | "zh-CN")}
+                disabled={isPending}
+                aria-label={labels.language}
+              >
+                <option value="en">{labels.languageEnglish}</option>
+                <option value="zh-CN">{labels.languageChinese}</option>
+              </select>
             </label>
             <div className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium text-gray-700">{labels.botToken}</span>

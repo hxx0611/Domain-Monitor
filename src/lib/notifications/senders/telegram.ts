@@ -32,6 +32,13 @@
  */
 
 import type { DeliverySender, NotificationEvent } from "../types";
+import {
+  DEFAULT_NOTIFICATION_LANGUAGE,
+  isNotificationLanguage,
+  NOTIFICATION_EVENT_LABELS,
+  NOTIFICATION_TEMPLATE_LABELS,
+  type NotificationLanguage,
+} from "../i18n";
 
 /** Telegram channel configuration (ref-only — no token value). */
 export interface TelegramChannelConfig {
@@ -41,6 +48,11 @@ export interface TelegramChannelConfig {
    * 9G+ — encrypted secrets in `notification_secrets` replace it.
    */
   secretRef?: string;
+  /**
+   * Notification message language (Phase 11I). Optional, defaults to "en".
+   * Independent from the UI locale.
+   */
+  language?: NotificationLanguage;
 }
 
 export type TelegramErrorCode =
@@ -83,16 +95,8 @@ export interface TelegramSenderOptions {
   resolveSecret?: (channelId: number, key: string) => Promise<string | null>;
 }
 
-const EVENT_LABELS: Record<string, string> = {
-  dns_record_added: "DNS record added",
-  dns_record_removed: "DNS record removed",
-  ssl_cert_replaced: "SSL certificate replaced",
-  ssl_status_changed: "SSL status changed",
-  http_status_changed: "HTTP status changed",
-  // Phase 11G-A: admin-triggered test notification is rendered explicitly
-  // as a test message so recipients can never mistake it for a real alert.
-  test_notification: "Test Notification",
-};
+/** English event labels (kept for backward-compatible exports/tests). */
+const EVENT_LABELS: Record<string, string> = NOTIFICATION_EVENT_LABELS.en;
 
 /** Telegram chat id: private chats are a positive integer; groups /
  * supergroups / channels are negative (often -100...). Loose-but-strict
@@ -113,7 +117,7 @@ export function parseTelegramConfig(config: string): TelegramChannelConfig {
   if (typeof parsed !== "object" || parsed === null) {
     throw new TelegramError("Telegram channel config must be an object.", "invalid-config");
   }
-  const { chatId, secretRef } = parsed as Record<string, unknown>;
+  const { chatId, secretRef, language } = parsed as Record<string, unknown>;
   if (typeof chatId !== "string" || chatId.length === 0) {
     throw new TelegramError("Telegram channel config is missing a chatId.", "invalid-config");
   }
@@ -124,30 +128,45 @@ export function parseTelegramConfig(config: string): TelegramChannelConfig {
       "invalid-config",
     );
   }
-  return { chatId, ...(secretRef !== undefined ? { secretRef } : {}) };
+  // Phase 11I: language is optional, defaults to "en"; an invalid value is
+  // ignored (renderer falls back to the default). The field is never
+  // persisted unless it was a valid language.
+  const configValue: TelegramChannelConfig = { chatId };
+  if (secretRef !== undefined) {
+    configValue.secretRef = secretRef;
+  }
+  if (isNotificationLanguage(language)) {
+    configValue.language = language;
+  }
+  return configValue;
 }
 
 /**
  * Build the plain-text message from an event. Never includes raw errors,
  * tokens, or stack traces. State values are rendered conservatively.
+ * The message language follows the channel config (Phase 11I); machine
+ * state values (ok/down/...) are intentionally NOT translated.
  */
 export function buildTelegramMessage(
   event: NotificationEvent,
   domainHostname: string | undefined,
+  language: NotificationLanguage = DEFAULT_NOTIFICATION_LANGUAGE,
 ): string {
+  const labels = NOTIFICATION_TEMPLATE_LABELS[language];
+  const eventLabels = NOTIFICATION_EVENT_LABELS[language];
   const alert = event.eventType === "http_status_changed" ? statusEmoji(event) : "🔔";
   const lines = [
-    `${alert} Domain Monitor`,
-    `Event: ${EVENT_LABELS[event.eventType] ?? event.eventType}`,
-    `Domain: ${domainHostname ?? `#${event.domainId}`}`,
+    `${alert} ${labels.appTitle}`,
+    `${labels.event}: ${eventLabels[event.eventType] ?? event.eventType}`,
+    `${labels.domain}: ${domainHostname ?? `#${event.domainId}`}`,
   ];
   const prev = stateText(event.previousState);
   const curr = stateText(event.currentState);
   if (prev !== undefined || curr !== undefined) {
-    lines.push(`Status: ${prev ?? "—"} → ${curr ?? "—"}`);
+    lines.push(`${labels.status}: ${prev ?? "—"} → ${curr ?? "—"}`);
   }
-  lines.push(`Time: ${event.occurredAt.toISOString()}`);
-  lines.push(`Event ID: ${event.dedupKey}`);
+  lines.push(`${labels.time}: ${event.occurredAt.toISOString()}`);
+  lines.push(`${labels.eventId}: ${event.dedupKey}`);
   return lines.join("\n");
 }
 
@@ -257,7 +276,7 @@ export class TelegramSender implements DeliverySender {
     const url = `${TELEGRAM_API_BASE}/bot${token}/sendMessage`;
     const body = JSON.stringify({
       chat_id: config.chatId,
-      text: buildTelegramMessage(event, this.resolveDomain(event.domainId)),
+      text: buildTelegramMessage(event, this.resolveDomain(event.domainId), config.language),
     });
 
     let response: Response;

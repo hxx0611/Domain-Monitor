@@ -76,6 +76,26 @@ describe("parseTelegramConfig", () => {
       TelegramError,
     );
   });
+  it("parses language when present (11I)", () => {
+    expect(parseTelegramConfig(JSON.stringify({ chatId: "123456789", language: "zh-CN" }))).toEqual(
+      { chatId: "123456789", language: "zh-CN" },
+    );
+  });
+  it("ignores an invalid language and leaves the field unset (11I)", () => {
+    expect(parseTelegramConfig(JSON.stringify({ chatId: "123456789", language: "fr" }))).toEqual({
+      chatId: "123456789",
+    });
+    expect(parseTelegramConfig(JSON.stringify({ chatId: "123456789", language: 7 }))).toEqual({
+      chatId: "123456789",
+    });
+  });
+  it("keeps language alongside a legacy secretRef (11I)", () => {
+    expect(
+      parseTelegramConfig(
+        JSON.stringify({ chatId: "123456789", secretRef: "TELEGRAM_BOT_TOKEN", language: "en" }),
+      ),
+    ).toEqual({ chatId: "123456789", secretRef: "TELEGRAM_BOT_TOKEN", language: "en" });
+  });
 });
 
 describe("TelegramSender.send", () => {
@@ -316,6 +336,38 @@ describe("TelegramSender.send", () => {
     await makeSender(fetchFn).send(1, EVENT, { id: 1, config: FAKE_CONFIG });
   });
 
+  it("12a. zh-CN channel config → message body uses Chinese labels (11I)", async () => {
+    const fetchFn = (async (_url: string, init?: RequestInit) => {
+      const text = JSON.parse(String(init?.body)).text as string;
+      expect(text).toContain("域名: example.com");
+      expect(text).toContain("事件: HTTP 状态变化");
+      expect(text).toContain("域名监控");
+      expect(text).not.toContain("Domain:");
+      return jsonResponse(200, { ok: true });
+    }) as unknown as typeof fetch;
+    await makeSender(fetchFn).send(1, EVENT, {
+      id: 1,
+      config: JSON.stringify({
+        chatId: "123456789",
+        secretRef: "TELEGRAM_BOT_TOKEN",
+        language: "zh-CN",
+      }),
+    });
+  });
+
+  it("12b. channel config without language → English body (11I)", async () => {
+    const fetchFn = (async (_url: string, init?: RequestInit) => {
+      const text = JSON.parse(String(init?.body)).text as string;
+      expect(text).toContain("Domain: example.com");
+      expect(text).not.toContain("域名");
+      return jsonResponse(200, { ok: true });
+    }) as unknown as typeof fetch;
+    await makeSender(fetchFn).send(1, EVENT, {
+      id: 1,
+      config: JSON.stringify({ chatId: "123456789", secretRef: "TELEGRAM_BOT_TOKEN" }),
+    });
+  });
+
   it("15. request URL uses the fixed Telegram API endpoint", async () => {
     const fetchFn = (async (url: string) => {
       expect(String(url)).toMatch(
@@ -352,6 +404,32 @@ describe("buildTelegramMessage", () => {
 
   it("falls back to domain id when hostname is unavailable", () => {
     expect(buildTelegramMessage(EVENT, undefined)).toContain("Domain: #42");
+  });
+
+  it("renders Chinese labels when language is zh-CN (11I)", () => {
+    const msg = buildTelegramMessage(EVENT, "example.com", "zh-CN");
+    expect(msg).toContain("域名: example.com");
+    expect(msg).toContain("事件: HTTP 状态变化");
+    expect(msg).toContain("状态: ok (200) → server_error (500)");
+    expect(msg).toContain("时间: 2026-08-16T12:00:00.000Z");
+    expect(msg).toContain("事件 ID: http:42:http_status_changed:ok:server_error");
+    expect(msg).toContain("域名监控");
+    // machine state values stay canonical
+    expect(msg).toContain("ok (200)");
+    expect(msg).not.toContain("正常");
+    expect(msg).not.toMatch(/\*\*|__|`/); // no markdown
+  });
+
+  it("renders English labels by default when language is undefined (11I)", () => {
+    const msg = buildTelegramMessage(EVENT, "example.com", undefined);
+    expect(msg).toContain("Domain: example.com");
+    expect(msg).toContain("Event: HTTP status changed");
+  });
+
+  it("renders test_notification label per language (11I)", () => {
+    const testEvent: NotificationEvent = { ...EVENT, eventType: "test_notification" };
+    expect(buildTelegramMessage(testEvent, "example.com")).toContain("Event: Test Notification");
+    expect(buildTelegramMessage(testEvent, "example.com", "zh-CN")).toContain("事件: 测试通知");
   });
 });
 

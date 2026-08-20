@@ -157,7 +157,7 @@ describe("saveTelegramChannelAction", () => {
     expect(mRepo.createChannel).toHaveBeenCalledWith(
       "telegram",
       "My Bot",
-      JSON.stringify({ chatId: "1616146471" }),
+      JSON.stringify({ chatId: "1616146471", language: "en" }),
     );
     // token lands in the encrypted secret store — never in the config.
     const configArg = mRepo.createChannel.mock.calls[0][2];
@@ -165,6 +165,41 @@ describe("saveTelegramChannelAction", () => {
     expect(configArg).not.toContain("secretRef");
     expect(mSecrets.setChannelSecret).toHaveBeenCalledWith(42, "token", FAKE_TOKEN);
     expect(mRepo.setChannelEnabled).not.toHaveBeenCalled(); // enabled default true
+  });
+
+  it("create with language=zh-CN persists language in config (11I)", async () => {
+    stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
+    mRepo.createChannel.mockReturnValue(43);
+
+    const result = await saveTelegramChannelAction({
+      channelId: null,
+      name: "My Bot",
+      chatId: "1616146471",
+      token: FAKE_TOKEN,
+      enabled: true,
+      language: "zh-CN",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(mRepo.createChannel).toHaveBeenCalledWith(
+      "telegram",
+      "My Bot",
+      JSON.stringify({ chatId: "1616146471", language: "zh-CN" }),
+    );
+  });
+
+  it("create with invalid language → invalid_language (11I)", async () => {
+    stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
+    const result = await saveTelegramChannelAction({
+      channelId: null,
+      name: "My Bot",
+      chatId: "1616146471",
+      token: FAKE_TOKEN,
+      enabled: true,
+      language: "fr",
+    } as never);
+    expect(result).toEqual({ ok: false, error: "invalid_language" });
+    expect(mRepo.createChannel).not.toHaveBeenCalled();
   });
 
   it("create with enabled=false disables the channel", async () => {
@@ -225,7 +260,7 @@ describe("saveTelegramChannelAction", () => {
     expect(result).toEqual({ ok: true });
     expect(mRepo.updateChannel).toHaveBeenCalledWith(7, {
       name: "Renamed",
-      config: JSON.stringify({ chatId: "1616146471" }),
+      config: JSON.stringify({ chatId: "1616146471", language: "en" }),
     });
     expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
   });
@@ -261,7 +296,11 @@ describe("saveTelegramChannelAction", () => {
     // The legacy env ref NAME is preserved so the channel keeps working.
     expect(mRepo.updateChannel).toHaveBeenCalledWith(7, {
       name: "Bot",
-      config: JSON.stringify({ chatId: "1616146471", secretRef: "TELEGRAM_BOT_TOKEN" }),
+      config: JSON.stringify({
+        chatId: "1616146471",
+        secretRef: "TELEGRAM_BOT_TOKEN",
+        language: "en",
+      }),
     });
     expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
   });

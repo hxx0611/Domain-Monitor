@@ -1,6 +1,6 @@
 {
   "name": "domain-monitor",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "private": true,
   "description": "A lightweight, modern, self-hostable domain lifecycle monitoring platform",
   "license": "MIT",

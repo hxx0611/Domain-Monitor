@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.6] — 2026-08-20
+
+### Added
+
+- **Channel-level notification language (Phase 11I)** for Telegram:
+  - `notification_channels.config` gains an optional `language` field (`"en"` / `"zh-CN"`), defaulting to `"en"`. No schema/migration change — the config is a JSON text column and existing channels without the field keep working unchanged (English).
+  - `buildTelegramMessage(event, hostname, language)` renders template labels (app title, event/domain/status/time/event id) and event labels in the channel's language. **Machine state values are intentionally NOT translated** (`ok` / `down` / `server_error` / `client_error`, HTTP status codes) to avoid ambiguity.
+  - Channel edit UI gains a **Notification Language** dropdown (English / 简体中文); `saveTelegramChannelAction` validates it (`invalid_language`) and persists it with the config.
+  - New `src/lib/notifications/i18n.ts` dictionary + integrity tests (key sets identical across languages).
+- **Tests**: parse/ignore language, zh-CN message rendering (labels + test notification label), sender body language from config, action language persistence/validation, toChannelView display (785 → 800 tests / 54 files).
+
+### Notes
+
+- Language is independent from the UI locale (cookie-based session).
+- webhook / email channels are NOT covered in this release (scope decision: Telegram only; dictionaries are structured so other channels can adopt them later).
+
 ## [v0.8.5] — 2026-08-19
 
 ### Added

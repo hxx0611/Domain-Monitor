@@ -34,6 +34,11 @@ import {
   TelegramError,
   isValidTelegramBotToken,
 } from "./senders/telegram";
+import {
+  DEFAULT_NOTIFICATION_LANGUAGE,
+  isNotificationLanguage,
+  type NotificationLanguage,
+} from "./i18n";
 import { hasChannelSecret, setChannelSecret } from "./secrets";
 import { createSender } from "./senders/factory";
 import { getDomainById, getDomains } from "@/lib/domains";
@@ -588,6 +593,7 @@ export async function saveTelegramChannelAction(input: {
   chatId: unknown;
   token: unknown;
   enabled: unknown;
+  language?: unknown;
 }): Promise<CrudResult> {
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
@@ -602,6 +608,14 @@ export async function saveTelegramChannelAction(input: {
   if (typeof input.enabled !== "boolean") {
     return { ok: false, error: "invalid_enabled" };
   }
+  // Phase 11I: language is optional; invalid values are rejected instead of
+  // silently persisted (the UI always sends a valid one).
+  if (input.language !== undefined && !isNotificationLanguage(input.language)) {
+    return { ok: false, error: "invalid_language" };
+  }
+  const language: NotificationLanguage = isNotificationLanguage(input.language)
+    ? input.language
+    : DEFAULT_NOTIFICATION_LANGUAGE;
 
   const channelId =
     input.channelId === null || input.channelId === undefined ? null : input.channelId;
@@ -654,9 +668,11 @@ export async function saveTelegramChannelAction(input: {
     const legacyRef = hasLegacyTelegramSecret((existing as NotificationChannel).config)
       ? parseTelegramConfig((existing as NotificationChannel).config).secretRef
       : undefined;
-    config = JSON.stringify(legacyRef ? { chatId, secretRef: legacyRef } : { chatId });
+    config = JSON.stringify(
+      legacyRef ? { chatId, secretRef: legacyRef, language } : { chatId, language },
+    );
   } else {
-    config = JSON.stringify({ chatId });
+    config = JSON.stringify({ chatId, language });
   }
 
   try {
@@ -904,6 +920,11 @@ function toChannelView(row: NotificationChannel): ChannelView {
     } else if (row.type === "telegram") {
       const config = parseTelegramConfig(row.config);
       configFields.push({ label: "Chat ID", value: config.chatId });
+      // Phase 11I: notification message language (display only).
+      configFields.push({
+        label: "Language",
+        value: config.language ?? DEFAULT_NOTIFICATION_LANGUAGE,
+      });
       if (config.secretRef !== undefined) {
         // Legacy Phase 7G env-based token. The env var NAME is intentionally
         // hidden from the UI — users only see that a legacy config exists.
