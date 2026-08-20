@@ -26,3 +26,16 @@ sqlite.pragma("foreign_keys = ON");
 sqlite.pragma("busy_timeout = 5000");
 
 export const db = drizzle(sqlite, { schema });
+
+/**
+ * Close the module-level SQLite connection.
+ *
+ * Production code never calls this — the connection lives for the whole
+ * process. Tests that point `DATABASE_URL` at a temp-file database must
+ * call it before deleting the temp directory: Windows cannot unlink a file
+ * that a native handle still holds open (EPERM), while Linux allows it and
+ * masks the leak.
+ */
+export function closeDb(): void {
+  sqlite.close();
+}

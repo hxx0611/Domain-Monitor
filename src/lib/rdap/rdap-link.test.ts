@@ -52,9 +52,18 @@ beforeAll(async () => {
   repository = await import("@/lib/domains/repository");
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // Phase 12A: close the module-level SQLite connection BEFORE removing the
+  // temp directory. The dynamic import in beforeAll loads @/lib/domains/
+  // repository, which triggers @/db's module-level `new Database()` — a
+  // singleton that never closes until the process exits. On Linux, unlink
+  // succeeds on open files, but on Windows the file handle keeps the file
+  // locked, so rmSync fails with EPERM. Close the connection first, then
+  // clean up with retries for any residual native lock.
+  const { closeDb } = await import("@/db");
+  closeDb();
   delete process.env.DATABASE_URL;
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 function urlOf(input: RequestInfo | URL): string {
