@@ -474,6 +474,7 @@ describe("toChannelView (Phase 8B telegram fix / Phase 9G legacy)", () => {
       expect(view.configFields.map((f) => [f.label, f.value])).toEqual([
         ["Chat ID", "1616146471"],
         ["Language", "en"],
+        ["Timezone", "UTC"],
         ["Legacy token", "configured via environment"],
       ]);
       expect(JSON.stringify(view)).not.toContain("TELEGRAM_BOT_TOKEN");
@@ -494,6 +495,7 @@ describe("toChannelView (Phase 8B telegram fix / Phase 9G legacy)", () => {
       expect(view.configFields.map((f) => [f.label, f.value])).toEqual([
         ["Chat ID", "1616146471"],
         ["Language", "en"],
+        ["Timezone", "UTC"],
       ]);
     }
   });
@@ -515,6 +517,33 @@ describe("toChannelView (Phase 8B telegram fix / Phase 9G legacy)", () => {
       expect(view.configFields.map((f) => [f.label, f.value])).toEqual([
         ["Chat ID", "1616146471"],
         ["Language", "zh-CN"],
+        ["Timezone", "UTC"],
+      ]);
+    }
+  });
+
+  it("renders timezone from telegram config, defaulting to UTC (11J)", async () => {
+    m.getChannels.mockReturnValue([
+      channelRow({
+        id: 1,
+        type: "telegram",
+        config: JSON.stringify({
+          chatId: "1616146471",
+          language: "en",
+          timezone: "Asia/Shanghai",
+        }),
+      }),
+    ]);
+    m.getRules.mockReturnValue([]);
+    m.getDeliveriesWithDetails.mockReturnValue([]);
+    const result = await getNotificationsOverviewAction();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const view = result.channels[0];
+      expect(view.configFields.map((f) => [f.label, f.value])).toEqual([
+        ["Chat ID", "1616146471"],
+        ["Language", "en"],
+        ["Timezone", "Asia/Shanghai"],
       ]);
     }
   });

@@ -157,7 +157,7 @@ describe("saveTelegramChannelAction", () => {
     expect(mRepo.createChannel).toHaveBeenCalledWith(
       "telegram",
       "My Bot",
-      JSON.stringify({ chatId: "1616146471", language: "en" }),
+      JSON.stringify({ chatId: "1616146471", language: "en", timezone: "UTC" }),
     );
     // token lands in the encrypted secret store — never in the config.
     const configArg = mRepo.createChannel.mock.calls[0][2];
@@ -184,8 +184,43 @@ describe("saveTelegramChannelAction", () => {
     expect(mRepo.createChannel).toHaveBeenCalledWith(
       "telegram",
       "My Bot",
-      JSON.stringify({ chatId: "1616146471", language: "zh-CN" }),
+      JSON.stringify({ chatId: "1616146471", language: "zh-CN", timezone: "UTC" }),
     );
+  });
+
+  it("create with timezone=Asia/Shanghai persists timezone in config (11J)", async () => {
+    stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
+    mRepo.createChannel.mockReturnValue(44);
+
+    const result = await saveTelegramChannelAction({
+      channelId: null,
+      name: "My Bot",
+      chatId: "1616146471",
+      token: FAKE_TOKEN,
+      enabled: true,
+      timezone: "Asia/Shanghai",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(mRepo.createChannel).toHaveBeenCalledWith(
+      "telegram",
+      "My Bot",
+      JSON.stringify({ chatId: "1616146471", language: "en", timezone: "Asia/Shanghai" }),
+    );
+  });
+
+  it("create with invalid timezone → invalid_timezone (11J)", async () => {
+    stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
+    const result = await saveTelegramChannelAction({
+      channelId: null,
+      name: "My Bot",
+      chatId: "1616146471",
+      token: FAKE_TOKEN,
+      enabled: true,
+      timezone: "Mars/Olympus",
+    } as never);
+    expect(result).toEqual({ ok: false, error: "invalid_timezone" });
+    expect(mRepo.createChannel).not.toHaveBeenCalled();
   });
 
   it("create with invalid language → invalid_language (11I)", async () => {
@@ -260,7 +295,7 @@ describe("saveTelegramChannelAction", () => {
     expect(result).toEqual({ ok: true });
     expect(mRepo.updateChannel).toHaveBeenCalledWith(7, {
       name: "Renamed",
-      config: JSON.stringify({ chatId: "1616146471", language: "en" }),
+      config: JSON.stringify({ chatId: "1616146471", language: "en", timezone: "UTC" }),
     });
     expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
   });
@@ -300,6 +335,7 @@ describe("saveTelegramChannelAction", () => {
         chatId: "1616146471",
         secretRef: "TELEGRAM_BOT_TOKEN",
         language: "en",
+        timezone: "UTC",
       }),
     });
     expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();

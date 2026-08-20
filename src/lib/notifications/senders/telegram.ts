@@ -39,6 +39,11 @@ import {
   NOTIFICATION_TEMPLATE_LABELS,
   type NotificationLanguage,
 } from "../i18n";
+import {
+  DEFAULT_NOTIFICATION_TIMEZONE,
+  formatNotificationTime,
+  isValidTimezone,
+} from "../timezone";
 
 /** Telegram channel configuration (ref-only — no token value). */
 export interface TelegramChannelConfig {
@@ -53,6 +58,12 @@ export interface TelegramChannelConfig {
    * Independent from the UI locale.
    */
   language?: NotificationLanguage;
+  /**
+   * Notification message timezone (Phase 11J, IANA name). Optional,
+   * defaults to "UTC". Only the rendered timestamp is converted; internal
+   * storage stays UTC.
+   */
+  timezone?: string;
 }
 
 export type TelegramErrorCode =
@@ -117,7 +128,7 @@ export function parseTelegramConfig(config: string): TelegramChannelConfig {
   if (typeof parsed !== "object" || parsed === null) {
     throw new TelegramError("Telegram channel config must be an object.", "invalid-config");
   }
-  const { chatId, secretRef, language } = parsed as Record<string, unknown>;
+  const { chatId, secretRef, language, timezone } = parsed as Record<string, unknown>;
   if (typeof chatId !== "string" || chatId.length === 0) {
     throw new TelegramError("Telegram channel config is missing a chatId.", "invalid-config");
   }
@@ -131,12 +142,17 @@ export function parseTelegramConfig(config: string): TelegramChannelConfig {
   // Phase 11I: language is optional, defaults to "en"; an invalid value is
   // ignored (renderer falls back to the default). The field is never
   // persisted unless it was a valid language.
+  // Phase 11J: timezone is optional, defaults to "UTC"; invalid values are
+  // ignored (renderer falls back to UTC).
   const configValue: TelegramChannelConfig = { chatId };
   if (secretRef !== undefined) {
     configValue.secretRef = secretRef;
   }
   if (isNotificationLanguage(language)) {
     configValue.language = language;
+  }
+  if (isValidTimezone(timezone)) {
+    configValue.timezone = timezone;
   }
   return configValue;
 }
@@ -151,6 +167,7 @@ export function buildTelegramMessage(
   event: NotificationEvent,
   domainHostname: string | undefined,
   language: NotificationLanguage = DEFAULT_NOTIFICATION_LANGUAGE,
+  timezone: string = DEFAULT_NOTIFICATION_TIMEZONE,
 ): string {
   const labels = NOTIFICATION_TEMPLATE_LABELS[language];
   const eventLabels = NOTIFICATION_EVENT_LABELS[language];
@@ -165,7 +182,7 @@ export function buildTelegramMessage(
   if (prev !== undefined || curr !== undefined) {
     lines.push(`${labels.status}: ${prev ?? "—"} → ${curr ?? "—"}`);
   }
-  lines.push(`${labels.time}: ${event.occurredAt.toISOString()}`);
+  lines.push(`${labels.time}: ${formatNotificationTime(event.occurredAt, timezone)}`);
   lines.push(`${labels.eventId}: ${event.dedupKey}`);
   return lines.join("\n");
 }
@@ -276,7 +293,12 @@ export class TelegramSender implements DeliverySender {
     const url = `${TELEGRAM_API_BASE}/bot${token}/sendMessage`;
     const body = JSON.stringify({
       chat_id: config.chatId,
-      text: buildTelegramMessage(event, this.resolveDomain(event.domainId), config.language),
+      text: buildTelegramMessage(
+        event,
+        this.resolveDomain(event.domainId),
+        config.language,
+        config.timezone,
+      ),
     });
 
     let response: Response;

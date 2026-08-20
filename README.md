@@ -85,6 +85,7 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 - Channels: **Telegram**, **Email API**, and **Webhook**
 - **Test notifications** (v0.8.4): admin-triggered `Send Test Notification` on each Telegram channel — exactly one event + one delivery + one message through the existing factory/sender/encrypted-secret pipeline, explicitly labelled `Test Notification`, never routed through rules or expiry logic
 - **Channel-level notification language** (v0.8.6): per-channel `language` (`en` / `zh-CN`) selected in the channel edit form; message template and event labels are localized, machine state values stay canonical
+- **Channel-level notification timezone** (v0.8.7): per-channel IANA `timezone` (default `UTC`) selected in the channel edit form; the Telegram message timestamp renders as `YYYY-MM-DD HH:mm:ss (Timezone)` via `Intl.DateTimeFormat` (DST-aware), internal storage stays UTC
 - Rule-based delivery matching (global or per-domain rules, by source / event type — including the `expiration_reminder` event type)
 - Notification configuration UI — channel CRUD (create / edit / toggle / delete), rule CRUD
 - Telegram bot tokens validated via `getMe` (server-side) and stored **AES-256-GCM encrypted** (`ENCRYPTION_KEY`), with legacy `TELEGRAM_BOT_TOKEN` env fallback

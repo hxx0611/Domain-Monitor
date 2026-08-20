@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.7] — 2026-08-20
+
+### Added
+
+- **Channel-level notification timezone (Phase 11J)** for Telegram:
+  - `notification_channels.config` gains an optional `timezone` field (IANA name, e.g. `Asia/Shanghai` / `UTC` / `America/New_York`), defaulting to `"UTC"`. No schema/migration change — the config is a JSON text column and existing channels without the field keep rendering exactly as before (UTC).
+  - `buildTelegramMessage(event, hostname, language, timezone)` renders the message timestamp via Node's built-in `Intl.DateTimeFormat` as `YYYY-MM-DD HH:mm:ss (Timezone)` — language-independent numeric format, correct DST handling, zero new dependencies.
+  - **Internal storage stays UTC**: only the rendered message timestamp is converted; `event.occurredAt`, the worker, dedup/CAS and the DB are untouched.
+  - Channel edit UI gains a **Message Timezone** field (datalist of common IANA zones + free-form IANA name); `saveTelegramChannelAction` validates it (`invalid_timezone`) and persists it with the config; the channels table displays it.
+  - New `src/lib/notifications/timezone.ts` (`isValidTimezone`, `formatNotificationTime`, `COMMON_NOTIFICATION_TIMEZONES`) + unit tests.
+- **Tests**: timezone validation/render (UTC / Asia/Shanghai / DST New York / invalid fallback), message rendering per timezone, sender body timezone from config, action persistence/validation, toChannelView display (800 → 813 tests / 55 files).
+
+### Notes
+
+- Scope: Telegram message timestamp only. webhook / email notifications and UI time displays are NOT covered in this release (decided separately).
+- Default `UTC` keeps every existing channel byte-for-byte compatible — zero migration.
+
 ## [v0.8.6] — 2026-08-20
 
 ### Added

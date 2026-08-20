@@ -39,6 +39,7 @@ import {
   isNotificationLanguage,
   type NotificationLanguage,
 } from "./i18n";
+import { DEFAULT_NOTIFICATION_TIMEZONE, isValidTimezone } from "./timezone";
 import { hasChannelSecret, setChannelSecret } from "./secrets";
 import { createSender } from "./senders/factory";
 import { getDomainById, getDomains } from "@/lib/domains";
@@ -594,6 +595,7 @@ export async function saveTelegramChannelAction(input: {
   token: unknown;
   enabled: unknown;
   language?: unknown;
+  timezone?: unknown;
 }): Promise<CrudResult> {
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
@@ -613,9 +615,16 @@ export async function saveTelegramChannelAction(input: {
   if (input.language !== undefined && !isNotificationLanguage(input.language)) {
     return { ok: false, error: "invalid_language" };
   }
+  // Phase 11J: timezone is optional (IANA name); invalid values rejected.
+  if (input.timezone !== undefined && !isValidTimezone(input.timezone)) {
+    return { ok: false, error: "invalid_timezone" };
+  }
   const language: NotificationLanguage = isNotificationLanguage(input.language)
     ? input.language
     : DEFAULT_NOTIFICATION_LANGUAGE;
+  const timezone: string = isValidTimezone(input.timezone)
+    ? input.timezone
+    : DEFAULT_NOTIFICATION_TIMEZONE;
 
   const channelId =
     input.channelId === null || input.channelId === undefined ? null : input.channelId;
@@ -669,10 +678,12 @@ export async function saveTelegramChannelAction(input: {
       ? parseTelegramConfig((existing as NotificationChannel).config).secretRef
       : undefined;
     config = JSON.stringify(
-      legacyRef ? { chatId, secretRef: legacyRef, language } : { chatId, language },
+      legacyRef
+        ? { chatId, secretRef: legacyRef, language, timezone }
+        : { chatId, language, timezone },
     );
   } else {
-    config = JSON.stringify({ chatId, language });
+    config = JSON.stringify({ chatId, language, timezone });
   }
 
   try {
@@ -924,6 +935,11 @@ function toChannelView(row: NotificationChannel): ChannelView {
       configFields.push({
         label: "Language",
         value: config.language ?? DEFAULT_NOTIFICATION_LANGUAGE,
+      });
+      // Phase 11J: notification message timezone (display only).
+      configFields.push({
+        label: "Timezone",
+        value: config.timezone ?? DEFAULT_NOTIFICATION_TIMEZONE,
       });
       if (config.secretRef !== undefined) {
         // Legacy Phase 7G env-based token. The env var NAME is intentionally

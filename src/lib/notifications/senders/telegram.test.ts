@@ -397,7 +397,7 @@ describe("buildTelegramMessage", () => {
     expect(msg).toContain("Domain: example.com");
     expect(msg).toContain("Event: HTTP status changed");
     expect(msg).toContain("Status: ok (200) → server_error (500)");
-    expect(msg).toContain("Time: 2026-08-16T12:00:00.000Z");
+    expect(msg).toContain("Time: 2026-08-16 12:00:00 (UTC)");
     expect(msg).toContain("Event ID: http:42:http_status_changed:ok:server_error");
     expect(msg).not.toMatch(/\*\*|__|`/); // no markdown
   });
@@ -411,7 +411,7 @@ describe("buildTelegramMessage", () => {
     expect(msg).toContain("域名: example.com");
     expect(msg).toContain("事件: HTTP 状态变化");
     expect(msg).toContain("状态: ok (200) → server_error (500)");
-    expect(msg).toContain("时间: 2026-08-16T12:00:00.000Z");
+    expect(msg).toContain("时间: 2026-08-16 12:00:00 (UTC)");
     expect(msg).toContain("事件 ID: http:42:http_status_changed:ok:server_error");
     expect(msg).toContain("域名监控");
     // machine state values stay canonical
@@ -430,6 +430,23 @@ describe("buildTelegramMessage", () => {
     const testEvent: NotificationEvent = { ...EVENT, eventType: "test_notification" };
     expect(buildTelegramMessage(testEvent, "example.com")).toContain("Event: Test Notification");
     expect(buildTelegramMessage(testEvent, "example.com", "zh-CN")).toContain("事件: 测试通知");
+  });
+
+  it("renders timestamp in the channel timezone (11J)", () => {
+    // 12:00:00Z = 20:00:00 Asia/Shanghai the same day.
+    const msg = buildTelegramMessage(EVENT, "example.com", "en", "Asia/Shanghai");
+    expect(msg).toContain("Time: 2026-08-16 20:00:00 (Asia/Shanghai)");
+    expect(msg).not.toContain("2026-08-16T12:00:00.000Z");
+  });
+
+  it("defaults timestamp to UTC when timezone is undefined (11J)", () => {
+    const msg = buildTelegramMessage(EVENT, "example.com", "en", undefined);
+    expect(msg).toContain("Time: 2026-08-16 12:00:00 (UTC)");
+  });
+
+  it("falls back to raw ISO for invalid timezone (11J)", () => {
+    const msg = buildTelegramMessage(EVENT, "example.com", "en", "Not/AZone");
+    expect(msg).toContain("Time: 2026-08-16T12:00:00.000Z");
   });
 });
 

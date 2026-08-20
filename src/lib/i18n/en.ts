@@ -247,6 +247,9 @@ export const en = {
       language: "Notification Language",
       languageEnglish: "English",
       languageChinese: "简体中文",
+      timezone: "Message Timezone",
+      timezoneHint:
+        "IANA name (e.g. Asia/Shanghai). Message timestamps render in this timezone; defaults to UTC.",
       secretRef: "Secret Ref",
       secretRefHint: "Environment variable NAME only — never paste the secret value.",
       botToken: "Bot Token",
@@ -297,6 +300,7 @@ export const en = {
       invalid_secret_ref: "Secret ref must be an environment variable name.",
       invalid_chat_id: "Chat ID must be a numeric Telegram id.",
       invalid_language: "Notification language must be English or 简体中文.",
+      invalid_timezone: "Notification timezone must be a valid IANA timezone name.",
       channel_not_found: "Channel not found.",
       rule_not_found: "Rule not found.",
       domain_not_found: "Domain not found.",
@@ -330,6 +334,7 @@ export const en = {
       chatId: "Chat ID",
       legacyToken: "Legacy token",
       language: "Notification Language",
+      timezone: "Timezone",
     },
     testNotification: {
       send: "Send Test Notification",

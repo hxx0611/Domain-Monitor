@@ -21,6 +21,7 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   "Chat ID": "notifications.field.chatId",
   "Legacy token": "notifications.field.legacyToken",
   Language: "notifications.field.language",
+  Timezone: "notifications.field.timezone",
 };
 
 /**

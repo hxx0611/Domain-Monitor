@@ -26,6 +26,10 @@ import {
   getChannelSecretStatusAction,
   type ChannelView,
 } from "@/lib/notifications/actions";
+import {
+  COMMON_NOTIFICATION_TIMEZONES,
+  DEFAULT_NOTIFICATION_TIMEZONE,
+} from "@/lib/notifications/timezone";
 
 const CHANNEL_TYPES = ["email", "webhook", "telegram"] as const;
 type ChannelTypeValue = (typeof CHANNEL_TYPES)[number];
@@ -65,6 +69,9 @@ export function ChannelForm({
   const [chatId, setChatId] = useState(fieldValue(channel, "Chat ID"));
   const [language, setLanguage] = useState(
     fieldValue(channel, "Language") === "zh-CN" ? "zh-CN" : "en",
+  );
+  const [timezone, setTimezone] = useState(
+    fieldValue(channel, "Timezone") || DEFAULT_NOTIFICATION_TIMEZONE,
   );
   const [secretRef, setSecretRef] = useState(fieldValue(channel, "Secret ref"));
   const [url, setUrl] = useState(fieldValue(channel, "URL"));
@@ -142,6 +149,7 @@ export function ChannelForm({
           token,
           enabled,
           language,
+          timezone,
         });
         if (!result.ok) {
           setError(lookup(dict, `notifications.errors.${result.error}`));
@@ -173,6 +181,8 @@ export function ChannelForm({
     language: lookup(dict, "notifications.channelForm.language"),
     languageEnglish: lookup(dict, "notifications.channelForm.languageEnglish"),
     languageChinese: lookup(dict, "notifications.channelForm.languageChinese"),
+    timezone: lookup(dict, "notifications.channelForm.timezone"),
+    timezoneHint: lookup(dict, "notifications.channelForm.timezoneHint"),
     secretRef: lookup(dict, "notifications.channelForm.secretRef"),
     secretRefHint: lookup(dict, "notifications.channelForm.secretRefHint"),
     botToken: lookup(dict, "notifications.channelForm.botToken"),
@@ -263,6 +273,23 @@ export function ChannelForm({
                 <option value="en">{labels.languageEnglish}</option>
                 <option value="zh-CN">{labels.languageChinese}</option>
               </select>
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium text-gray-700">{labels.timezone}</span>
+              <input
+                className={inputClass}
+                value={timezone}
+                onChange={(event) => setTimezone(event.target.value)}
+                list="notification-timezones"
+                disabled={isPending}
+                aria-label={labels.timezone}
+              />
+              <datalist id="notification-timezones">
+                {COMMON_NOTIFICATION_TIMEZONES.map((tz) => (
+                  <option key={tz} value={tz} />
+                ))}
+              </datalist>
+              <span className="mt-1 block text-xs text-gray-500">{labels.timezoneHint}</span>
             </label>
             <div className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium text-gray-700">{labels.botToken}</span>
