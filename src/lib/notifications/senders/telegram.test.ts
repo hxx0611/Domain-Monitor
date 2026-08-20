@@ -133,6 +133,96 @@ describe("TelegramSender.send", () => {
     ).rejects.toMatchObject({ name: "TelegramError", code: "rejected" });
   });
 
+  it("5a. HTTP 403 + description → rejected message includes sanitized description (11G-C)", async () => {
+    try {
+      await makeSender(
+        fakeFetch(
+          jsonResponse(403, {
+            ok: false,
+            error_code: 403,
+            description: "Forbidden: bot was blocked by the user",
+          }),
+        ),
+      ).send(1, EVENT, { id: 1, config: FAKE_CONFIG });
+      throw new Error("expected throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(TelegramError);
+      expect((e as TelegramError).code).toBe("rejected");
+      expect((e as Error).message).toBe(
+        "Telegram API returned HTTP 403: Forbidden: bot was blocked by the user",
+      );
+      expect((e as Error).message).not.toContain("TEST_TELEGRAM_BOT_TOKEN");
+    }
+  });
+
+  it("5b. HTTP 403 + description containing token shape → redacted to [token] (11G-C)", async () => {
+    const sampleToken = "123456789:AAH_abcdefghijklmnopqrstuvwxyz123456";
+    try {
+      await makeSender(
+        fakeFetch(
+          jsonResponse(403, {
+            ok: false,
+            description: `Forbidden: token ${sampleToken} is bad`,
+          }),
+        ),
+      ).send(1, EVENT, { id: 1, config: FAKE_CONFIG });
+      throw new Error("expected throw");
+    } catch (e) {
+      const msg = (e as Error).message;
+      expect(msg).toContain("[token]");
+      expect(msg).not.toContain(sampleToken);
+      expect(msg).toContain("Forbidden: token [token] is bad");
+    }
+  });
+
+  it("5c. HTTP 403 + description containing URL → redacted to [url] (11G-C)", async () => {
+    try {
+      await makeSender(
+        fakeFetch(
+          jsonResponse(403, {
+            ok: false,
+            description: "Go to https://api.telegram.org/help for details",
+          }),
+        ),
+      ).send(1, EVENT, { id: 1, config: FAKE_CONFIG });
+      throw new Error("expected throw");
+    } catch (e) {
+      const msg = (e as Error).message;
+      expect(msg).toContain("[url]");
+      expect(msg).not.toContain("api.telegram.org");
+      expect(msg).toContain("Go to [url] for details");
+    }
+  });
+
+  it("5d. HTTP 403 + non-JSON / empty body → status-only message (11G-C)", async () => {
+    const res = new Response("<html>oops</html>", {
+      status: 403,
+      headers: { "Content-Type": "text/html" },
+    });
+    await expect(
+      makeSender(fakeFetch(res)).send(1, EVENT, { id: 1, config: FAKE_CONFIG }),
+    ).rejects.toMatchObject({
+      name: "TelegramError",
+      code: "rejected",
+      message: "Telegram API returned HTTP 403.",
+    });
+  });
+
+  it("5e. long description → truncated to 200 chars (11G-C)", async () => {
+    const long = "x".repeat(500);
+    try {
+      await makeSender(
+        fakeFetch(jsonResponse(403, { ok: false, description: `Prefix ${long} suffix` })),
+      ).send(1, EVENT, { id: 1, config: FAKE_CONFIG });
+      throw new Error("expected throw");
+    } catch (e) {
+      const msg = (e as Error).message;
+      expect(msg.length).toBeLessThanOrEqual(200 + 33);
+      expect(msg).toContain("Prefix ");
+      expect(msg).toContain("…");
+    }
+  });
+
   it("6. HTTP 200 + {ok:false} → rejected (never trust HTTP 200 alone)", async () => {
     await expect(
       makeSender(fakeFetch(jsonResponse(200, { ok: false, description: "Unauthorized" }))).send(

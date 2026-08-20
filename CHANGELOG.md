@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.5] — 2026-08-19
+
+### Added
+
+- **Telegram rejection reason diagnosis (Phase 11G-C)**: when Telegram rejects a send with a non-2xx status, the sender now reads the API response body's `description` field (e.g. `Forbidden: bot was blocked by the user`) and includes it in the controlled error message stored on the delivery (`Telegram API returned HTTP 403: Forbidden: ...`).
+- **Sanitization guarantees**: the description is truncated to 200 chars; bot-token-shaped substrings are redacted to `[token]`, URL-shaped substrings to `[url]`; a non-JSON or missing body degrades to the previous status-only message. Errors never contain the token, the API base, or other sensitive values.
+- **Tests**: 5 new cases covering description inclusion, token/URL redaction, non-JSON fallback, and long-description truncation (785 tests / 53 files, all gates green).
+
+### Notes
+
+- Added to diagnose an ongoing production Telegram 403 (three controlled test sends reached the Telegram API and were rejected with HTTP 403 without a description). The precise Telegram-side reason is captured on the next real test send.
+- No schema/migration change; no behavior change for successful sends.
+
 ## [v0.8.4] — 2026-08-19
 
 ### Added

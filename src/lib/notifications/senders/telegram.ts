@@ -278,7 +278,15 @@ export class TelegramSender implements DeliverySender {
       throw new TelegramError("Telegram API returned a redirect; not following it.", "redirect");
     }
     if (!response.ok) {
-      throw new TelegramError(`Telegram API returned HTTP ${response.status}.`, "rejected");
+      // Phase 11G-C: surface Telegram's rejection reason (response body
+      // `description`) so 403-class failures can be diagnosed, while
+      // keeping the error message secret-free: description is truncated,
+      // token/URL-shaped substrings are redacted, and any body read
+      // failure falls back to the status-only message.
+      throw new TelegramError(
+        telegramRejectedMessage(response.status, await readTelegramDescription(response)),
+        "rejected",
+      );
     }
 
     let raw: unknown;
@@ -302,6 +310,65 @@ function mapFetchError(error: unknown): TelegramError {
     }
   }
   return new TelegramError("Telegram request failed (network error).", "network");
+}
+
+// ---------------------------------------------------------------------------
+// Rejection description extraction (Phase 11G-C)
+//
+// When Telegram rejects a send with a non-2xx status, its response body is
+// JSON like `{"ok":false,"error_code":403,"description":"Forbidden: bot
+// was blocked by the user"}`. The `description` is the only piece of
+// actionable diagnosis we get, but it MUST be sanitized before it can live
+// in delivery.error: redact bot-token-shaped and URL-shaped substrings,
+// truncate, and fail soft (status-only message) if the body is not JSON.
+// ---------------------------------------------------------------------------
+
+/** Max length of a Telegram rejection description kept in error messages. */
+const TELEGRAM_DESCRIPTION_MAX = 200;
+
+/** Build the controlled "rejected" error message for a non-2xx response. */
+export function telegramRejectedMessage(status: number, description: string | null): string {
+  if (!description) {
+    return `Telegram API returned HTTP ${status}.`;
+  }
+  return `Telegram API returned HTTP ${status}: ${description}`;
+}
+
+/**
+ * Read and sanitize a Telegram API error body's `description` field.
+ * Returns null when the body is missing, non-JSON, or has no description.
+ * Never throws — any read failure degrades to the status-only message.
+ */
+export async function readTelegramDescription(response: Response): Promise<string | null> {
+  let raw: unknown;
+  try {
+    raw = await response.json();
+  } catch {
+    return null;
+  }
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const description = raw.description;
+  if (typeof description !== "string" || description.length === 0) {
+    return null;
+  }
+  return sanitizeTelegramDescription(description);
+}
+
+/**
+ * Redact secret-shaped substrings and truncate a Telegram description.
+ * - bot token shape `\d{4,}:[A-Za-z0-9_-]{20,}` → `[token]`
+ * - URL shape `https?://...` → `[url]`
+ * - then truncate to TELEGRAM_DESCRIPTION_MAX chars.
+ */
+export function sanitizeTelegramDescription(description: string): string {
+  const redacted = description
+    .replace(/\d{4,}:[A-Za-z0-9_-]{20,}/g, "[token]")
+    .replace(/https?:\/\/[^\s"]+/g, "[url]");
+  return redacted.length > TELEGRAM_DESCRIPTION_MAX
+    ? `${redacted.slice(0, TELEGRAM_DESCRIPTION_MAX)}…`
+    : redacted;
 }
 
 // ---------------------------------------------------------------------------
