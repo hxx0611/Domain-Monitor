@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.8] — 2026-08-20
+
+### Fixed
+
+- **Windows CI: SQLite temp test database could not be deleted** (Phase 12A). `rdap-link.test.ts` failed on the `windows-fresh-install (Node 24)` job with `EPERM / Permission denied / syscall: rm` when the `afterAll` hook tried to remove its temporary directory.
+- **Root cause**: `@/db` opens a module-level SQLite connection (`new Database(databaseUrl)`) that lives for the whole process. The test's dynamic import of the domain repository triggered that connection, so at cleanup time a native file handle still held `test.db`. Linux allows unlinking an open file and silently masked the leak; Windows refuses to delete a file held open by a process.
+- **Fix**: `src/db/index.ts` now exports a test-lifecycle helper `closeDb()` (never called by production code — production behavior is unchanged); `rdap-link.test.ts` closes the connection before deleting the temp directory and uses `rmSync({ recursive, force, maxRetries: 5, retryDelay: 100 })` as a residual native-lock fallback.
+
+### Notes
+
+- **Test infrastructure / cross-platform compatibility fix only.** This release does not change production database behavior, does not touch migrations or schema, and does not change RDAP business logic (`queryRdapWithFallback`, ownership semantics, `updateDomainRdap`).
+- Windows Node 24 fresh-install CI passes with no `EPERM` / `Permission denied` / `syscall: rm`; all four CI jobs (windows-fresh-install Node 24, build-and-lint Node 22/24/26) pass with **813 tests / 55 files**.
+
 ## [v0.8.7] — 2026-08-20
 
 ### Added
