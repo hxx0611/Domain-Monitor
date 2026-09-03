@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getDictionary, getLocale } from "@/lib/i18n";
 import { lookup } from "@/lib/i18n/display";
-import { isAdminConfigured } from "@/lib/auth/admin";
+import { getRepository } from "@/lib/runtime/repository";
 import { RecoverForm } from "@/components/auth/recover-form";
 import { LanguageSwitcher } from "@/components/language-switcher";
 
@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
  * component's local state.
  */
 export default async function RecoverPage() {
-  if (!isAdminConfigured()) {
+  const repo = await getRepository();
+  if (!(await repo.isAdminConfigured())) {
     redirect("/setup");
   }
   const locale = await getLocale();

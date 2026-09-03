@@ -10,11 +10,11 @@
  * - The first check for a domain stores a snapshot without change events.
  */
 
-import { getDomainById } from "@/lib/domains";
+import type { Repository } from "@/db/repository";
+import { getRepository } from "@/lib/runtime/repository";
 import { queryDnsRecords, DnsError, type DnsClientOptions } from "./client";
 import { diffDnsSnapshots } from "./diff";
 import { sortRecords } from "./normalize";
-import { createDnsSnapshot, getLatestDnsSnapshot, type DnsDb } from "./repository";
 import { dnsChangesToEvents } from "@/lib/notifications/events";
 import { classifyDnsError } from "@/lib/monitoring/error-classifier";
 import { DNS_RECORD_TYPES, type DnsCheckResult, type DnsRecord } from "./types";
@@ -22,8 +22,8 @@ import { DNS_RECORD_TYPES, type DnsCheckResult, type DnsRecord } from "./types";
 export interface DnsServiceOptions {
   /** Per-query DoH client options (endpoint/timeout/fetch) — tests inject mocks here. */
   clientOptions?: DnsClientOptions;
-  /** Injectable database (tests). */
-  db?: DnsDb;
+  /** Injectable repository (tests). */
+  repo?: Repository;
 }
 
 /** In-flight guard: prevents duplicate concurrent checks per domain. */
@@ -43,7 +43,8 @@ export async function checkDns(
   domainId: number,
   options: DnsServiceOptions = {},
 ): Promise<DnsCheckResult> {
-  const domain = getDomainById(domainId);
+  const target = options.repo ?? (await getRepository());
+  const domain = await target.getDomainById(domainId);
   if (!domain) {
     return { ok: false, error: "Domain not found." };
   }
@@ -74,15 +75,14 @@ export async function checkDns(
     const records = sortRecords(grouped.flat());
     const checkedAt = new Date();
 
-    const previous = getLatestDnsSnapshot(domainId, options.db);
+    const previous = await target.getLatestDnsSnapshot(domainId);
     const current = { id: 0, domainId, checkedAt, records };
     // First check (no previous snapshot) → no change events.
     const changes = previous ? diffDnsSnapshots(previous, current) : [];
 
-    const snapshotId = createDnsSnapshot(
+    const snapshotId = await target.createDnsSnapshot(
       domainId,
       records,
-      options.db,
       dnsChangesToEvents(domainId, changes, checkedAt),
     );
 

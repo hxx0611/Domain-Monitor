@@ -28,13 +28,8 @@
  * the senders at send time and never appear in worker output.
  */
 
-import {
-  getChannel,
-  getEvent,
-  getPendingDeliveries,
-  recoverStaleSending,
-  type NotificationDb,
-} from "./repository";
+import type { Repository } from "@/db/repository";
+import { getRepository } from "@/lib/runtime/repository";
 import { evaluateExpirationReminders } from "./expiration";
 import { deliverDelivery } from "./service";
 import { createSender } from "./senders/factory";
@@ -48,8 +43,8 @@ import type {
 import type { NotificationEventRow } from "@/db/schema";
 
 export interface WorkerRunOptions {
-  /** Injectable database (tests); defaults to the app db. */
-  db?: NotificationDb;
+  /** Injectable repository (tests); defaults to the app singleton. */
+  repo?: Repository;
   /** Max deliveries processed per tick (default 50). */
   limit?: number;
   /** Stale threshold for recoverStaleSending (default 5 minutes). */
@@ -82,7 +77,7 @@ export const DEFAULT_WORKER_LIMIT = 50;
  * individual delivery failures (each is caught and counted as `failed`).
  */
 export async function runOnce(options: WorkerRunOptions = {}): Promise<WorkerRunResult> {
-  const db = options.db;
+  const repo = options.repo ?? (await getRepository());
   const limit = options.limit ?? DEFAULT_WORKER_LIMIT;
   const staleAfterMs = options.staleAfterMs;
   const now = options.now;
@@ -91,14 +86,14 @@ export async function runOnce(options: WorkerRunOptions = {}): Promise<WorkerRun
   // 0. Record due expiration reminders BEFORE deliveries are claimed, so a
   //    reminder due this tick is delivered in this same tick. Idempotent:
   //    events whose dedup key already exists are skipped (returns 0).
-  const expirationEvents = evaluateExpirationReminders(now ?? new Date(), db);
+  const expirationEvents = await evaluateExpirationReminders(now ?? new Date(), repo);
 
   // 1. Unstick stale `sending` rows BEFORE claiming anything new, so a
   //    crashed worker's deliveries get a chance in this same tick.
-  const recovered = recoverStaleSending(db, staleAfterMs, now);
+  const recovered = await repo.recoverStaleSending(staleAfterMs, now);
 
   // 2. Oldest-first pending batch (FIFO).
-  const deliveries = getPendingDeliveries(limit, db);
+  const deliveries = await repo.getPendingDeliveries(limit);
 
   let attempted = 0;
   let sent = 0;
@@ -108,7 +103,7 @@ export async function runOnce(options: WorkerRunOptions = {}): Promise<WorkerRun
   for (const delivery of deliveries) {
     attempted++;
 
-    const event = getEvent(delivery.eventId, db);
+    const event = await repo.getEvent(delivery.eventId);
     if (!event) {
       // Unreachable in practice (deliveries cascade-delete with their
       // event); skip defensively rather than crash the batch.
@@ -116,7 +111,7 @@ export async function runOnce(options: WorkerRunOptions = {}): Promise<WorkerRun
       continue;
     }
 
-    const channel = getChannel(delivery.channelId, db);
+    const channel = await repo.getChannel(delivery.channelId);
     if (!channel) {
       skipped++;
       continue;
@@ -125,7 +120,9 @@ export async function runOnce(options: WorkerRunOptions = {}): Promise<WorkerRun
     const sender = senderFactory(channel.type as ChannelType);
 
     try {
-      const result = await deliverDelivery(delivery.id, toNotificationEvent(event), sender, { db });
+      const result = await deliverDelivery(delivery.id, toNotificationEvent(event), sender, {
+        repo,
+      });
       if (result.status === "sent") {
         sent++;
       } else if (result.status === "failed") {

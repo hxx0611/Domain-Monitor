@@ -12,11 +12,11 @@
  *   recorded, not silently dropped.
  */
 
-import { getDomainById } from "@/lib/domains";
+import type { Repository } from "@/db/repository";
+import { getRepository } from "@/lib/runtime/repository";
 import { fetchSslCertificate, SslError, type SslClientOptions } from "./client";
 import { diffSslSnapshots } from "./diff";
 import { classifySslStatus, toSslCertificate } from "./normalize";
-import { createSslSnapshot, getLatestSslSnapshot, type SslDb } from "./repository";
 import { sslChangesToEvents } from "@/lib/notifications/events";
 import { classifySslError } from "@/lib/monitoring/error-classifier";
 import type { SslCheckResult, SslSnapshot } from "./types";
@@ -24,8 +24,8 @@ import type { SslCheckResult, SslSnapshot } from "./types";
 export interface SslServiceOptions {
   /** Per-connection TLS client options — tests inject a fake socket factory. */
   clientOptions?: SslClientOptions;
-  /** Injectable database (tests). */
-  db?: SslDb;
+  /** Injectable repository (tests). */
+  repo?: Repository;
 }
 
 /** In-flight guard: prevents duplicate concurrent checks per domain. */
@@ -46,7 +46,8 @@ export async function checkSsl(
   domainId: number,
   options: SslServiceOptions = {},
 ): Promise<SslCheckResult> {
-  const domain = getDomainById(domainId);
+  const target = options.repo ?? (await getRepository());
+  const domain = await target.getDomainById(domainId);
   if (!domain) {
     return { ok: false, error: "Domain not found." };
   }
@@ -57,7 +58,7 @@ export async function checkSsl(
   inFlight.add(domainId);
 
   try {
-    const previous = getLatestSslSnapshot(domainId, options.db);
+    const previous = await target.getLatestSslSnapshot(domainId);
 
     let raw: Awaited<ReturnType<typeof fetchSslCertificate>>;
     try {
@@ -69,7 +70,7 @@ export async function checkSsl(
       console.error(`[ssl] check failed for domain ${domainId} (${domain.hostname}):`, error);
       const errorCode = classifySslError(error);
       try {
-        createSslSnapshot({ domainId, status: "error", error: errorCode }, options.db);
+        await target.createSslSnapshot({ domainId, status: "error", error: errorCode });
       } catch (dbError) {
         console.error(`[ssl] failed to persist error snapshot for domain ${domainId}:`, dbError);
       }
@@ -92,7 +93,7 @@ export async function checkSsl(
     // First check (no previous snapshot) → no change events.
     const changes = previous ? diffSslSnapshots(previous, current) : [];
 
-    const snapshotId = createSslSnapshot(
+    const snapshotId = await target.createSslSnapshot(
       {
         domainId,
         tlsVersion: raw.tlsVersion,
@@ -100,7 +101,6 @@ export async function checkSsl(
         status,
         certificate,
       },
-      options.db,
       sslChangesToEvents({
         domainId,
         changes,

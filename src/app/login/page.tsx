@@ -1,14 +1,16 @@
 import { redirect } from "next/navigation";
 import { getDictionary, getLocale } from "@/lib/i18n";
 import { lookup } from "@/lib/i18n/display";
-import { isAdminAuthenticated, isAdminConfigured } from "@/lib/auth/admin";
+import { isAdminAuthenticated } from "@/lib/auth/admin";
+import { getRepository } from "@/lib/runtime/repository";
 import { LoginForm } from "@/components/auth/login-form";
 import { LanguageSwitcher } from "@/components/language-switcher";
 
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
-  if (!isAdminConfigured()) {
+  const repo = await getRepository();
+  if (!(await repo.isAdminConfigured())) {
     redirect("/setup");
   }
   if (await isAdminAuthenticated()) {

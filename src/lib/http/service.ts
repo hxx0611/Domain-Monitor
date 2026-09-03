@@ -15,10 +15,10 @@
  * second line of defense. This layer must not bypass or relax them.
  */
 
-import { getDomainById } from "@/lib/domains";
+import type { Repository } from "@/db/repository";
+import { getRepository } from "@/lib/runtime/repository";
 import { fetchHttpStatus, HttpError, type HttpClientOptions } from "./client";
 import { classifyHttpStatus } from "./normalize";
-import { createHttpSnapshot, getLatestHttpSnapshot, type HttpDb } from "./repository";
 import { httpStatusChangeEvent } from "@/lib/notifications/events";
 import { classifyHttpError } from "@/lib/monitoring/error-classifier";
 import type { HttpCheckResult, HttpSnapshot } from "./types";
@@ -26,8 +26,8 @@ import type { HttpCheckResult, HttpSnapshot } from "./types";
 export interface HttpServiceOptions {
   /** Per-request client options — tests inject a fake fetch + lookup. */
   clientOptions?: HttpClientOptions;
-  /** Injectable database (tests). */
-  db?: HttpDb;
+  /** Injectable repository (tests). */
+  repo?: Repository;
 }
 
 /** In-flight guard: prevents duplicate concurrent checks per domain. */
@@ -49,7 +49,8 @@ export async function checkHttp(
   domainId: number,
   options: HttpServiceOptions = {},
 ): Promise<HttpCheckResult> {
-  const domain = getDomainById(domainId);
+  const target = options.repo ?? (await getRepository());
+  const domain = await target.getDomainById(domainId);
   if (!domain) {
     return { ok: false, error: "Domain not found." };
   }
@@ -60,7 +61,7 @@ export async function checkHttp(
   inFlight.add(domainId);
 
   try {
-    const previous = getLatestHttpSnapshot(domainId, options.db);
+    const previous = await target.getLatestHttpSnapshot(domainId);
 
     let raw: Awaited<ReturnType<typeof fetchHttpStatus>>;
     try {
@@ -90,7 +91,7 @@ export async function checkHttp(
         errorSnapshot.checkedAt,
       );
       try {
-        createHttpSnapshot(
+        await target.createHttpSnapshot(
           {
             domainId,
             status: "error",
@@ -98,7 +99,6 @@ export async function checkHttp(
             redirectCount: 0,
             error: errorCode,
           },
-          options.db,
           errorEvent ? [errorEvent] : [],
         );
       } catch (dbError) {
@@ -121,7 +121,7 @@ export async function checkHttp(
       finalUrl: raw.finalUrl,
     };
     const event = httpStatusChangeEvent(domainId, previous, current, checkedAt);
-    const snapshotId = createHttpSnapshot(
+    const snapshotId = await target.createHttpSnapshot(
       {
         domainId,
         status,
@@ -131,7 +131,6 @@ export async function checkHttp(
         redirectCount: raw.redirectCount,
         finalUrl: raw.finalUrl,
       },
-      options.db,
       event ? [event] : [],
     );
 

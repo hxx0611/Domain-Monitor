@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getDomains } from "@/lib/domains";
+import { getRepository } from "@/lib/runtime/repository";
 import { getNotificationsOverviewAction } from "@/lib/notifications/actions";
 import { getDictionary, getLocale } from "@/lib/i18n";
 import { lookup } from "@/lib/i18n/display";
@@ -15,7 +15,11 @@ export const dynamic = "force-dynamic";
 export default async function NotificationsPage() {
   await requirePageAccess();
   const result = await getNotificationsOverviewAction();
-  const domains = getDomains().map((domain) => ({ id: domain.id, label: domain.hostname }));
+  const repo = await getRepository();
+  const domains = (await repo.getDomains()).map((domain) => ({
+    id: domain.id,
+    label: domain.hostname,
+  }));
   const locale = await getLocale();
   const dict = getDictionary(locale);
 

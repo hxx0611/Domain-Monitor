@@ -21,16 +21,9 @@
  * the worker's delivery loop.
  */
 
-import { db } from "@/db";
-import { domains, type Domain } from "@/db/schema";
-import { isNotNull } from "drizzle-orm";
-import { getAllExpirationReminders } from "@/lib/domains/repository";
-import type { NotificationDb } from "./repository";
-// Phase 11D: insert the reminder event AND generate its deliveries in one
-// call, so a reminder recorded by the worker actually produces a pending
-// delivery (previously only the event row was inserted — the event existed
-// but nothing ever delivered it).
-import { insertEventsAndGenerateDeliveries } from "./service";
+import type { Repository } from "@/db/repository";
+import { getRepository } from "@/lib/runtime/repository";
+import type { Domain } from "@/db/schema";
 import { expirationReminderEvent } from "./events";
 
 /**
@@ -94,16 +87,17 @@ export function compareCalendarDates(
  * Returns the number of NEW events inserted (events whose dedup key did
  * not already exist). Repeated evaluation with the same clock inserts 0.
  */
-export function evaluateExpirationReminders(
+export async function evaluateExpirationReminders(
   now: Date = new Date(),
-  target: NotificationDb = db,
-): number {
-  const reminderRows = getAllExpirationReminders(target);
+  repo?: Repository,
+): Promise<number> {
+  const r = repo ?? (await getRepository());
+  const reminderRows = await r.getAllExpirationReminders();
   if (reminderRows.length === 0) {
     return 0;
   }
 
-  const domainRows = target.select().from(domains).where(isNotNull(domains.expirationDate)).all();
+  const domainRows = await r.getDomainsWithExpiration();
   const domainById = new Map<number, Domain>(domainRows.map((domain) => [domain.id, domain]));
 
   const today = utcToday(now);
@@ -139,6 +133,6 @@ export function evaluateExpirationReminders(
 
   // Phase 11D: insert + generate deliveries atomically (new events only —
   // dedup-key hits return null ids and never re-generate deliveries).
-  const ids = insertEventsAndGenerateDeliveries(target, events);
+  const ids = await r.insertEventsAndGenerateDeliveries(events);
   return ids.filter((id) => id !== null).length;
 }

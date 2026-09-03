@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { getDomains, getRegistrationProvider } from "@/lib/domains";
+import { getRegistrationProvider } from "@/lib/domains";
+import { getRepository } from "@/lib/runtime/repository";
 import { formatDate } from "@/lib/format";
 import { getDictionary, getLocale } from "@/lib/i18n";
 import { domainFormLabels } from "@/lib/i18n/domain-form-labels";
@@ -13,7 +14,8 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   await requirePageAccess();
-  const domains = getDomains();
+  const repo = await getRepository();
+  const domains = await repo.getDomains();
   const locale = await getLocale();
   const dict = getDictionary(locale);
 

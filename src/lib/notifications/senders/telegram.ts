@@ -95,7 +95,7 @@ export interface TelegramSenderOptions {
   /** Injectable env map (defaults to process.env). */
   env?: Record<string, string | undefined>;
   /** Resolve a domain id → hostname for the message (tests inject a fake). */
-  resolveDomain?: (domainId: number) => string | undefined;
+  resolveDomain?: (domainId: number) => Promise<string | undefined> | string | undefined;
   /**
    * Phase 9H: resolve an encrypted channel secret (notification_secrets)
    * by channel id + key → plaintext or null. Injected by the factory
@@ -242,7 +242,9 @@ export class TelegramSender implements DeliverySender {
 
   private readonly fetchFn: typeof fetch;
   private readonly env: Record<string, string | undefined>;
-  private readonly resolveDomain: (domainId: number) => string | undefined;
+  private readonly resolveDomain: (
+    domainId: number,
+  ) => Promise<string | undefined> | string | undefined;
   private readonly resolveSecret:
     ((channelId: number, key: string) => Promise<string | null>) | undefined;
 
@@ -290,12 +292,19 @@ export class TelegramSender implements DeliverySender {
       );
     }
 
-    const url = `${TELEGRAM_API_BASE}/bot${token}/sendMessage`;
+    // Base URL resolution: default is the fixed official Bot API host.
+    // An OPERATOR-level env override (CONFIG_TELEGRAM_ENDPOINT) may redirect
+    // ALL sendMessage traffic — used exclusively by local prototypes/E2E
+    // gates pointing at a fake endpoint. Channel/user config can NEVER set
+    // this (SSRF/exfiltration guard preserved).
+    const configuredBase = this.env.CONFIG_TELEGRAM_ENDPOINT?.trim();
+    const base = configuredBase ? configuredBase.replace(/\/+$/, "") : TELEGRAM_API_BASE;
+    const url = `${base}/bot${token}/sendMessage`;
     const body = JSON.stringify({
       chat_id: config.chatId,
       text: buildTelegramMessage(
         event,
-        this.resolveDomain(event.domainId),
+        await this.resolveDomain(event.domainId),
         config.language,
         config.timezone,
       ),

@@ -243,7 +243,7 @@ export const zhCN = {
       name: "名称",
       type: "类型",
       chatId: "Chat ID",
-      chatIdHint: "Telegram 的数字 chat id（例如 1616146471）。",
+      chatIdHint: "Telegram 的数字 chat id（例如 100000001）。",
       language: "通知语言",
       languageEnglish: "English",
       languageChinese: "简体中文",

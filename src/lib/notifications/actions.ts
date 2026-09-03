@@ -2,28 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { randomUUID } from "node:crypto";
-import {
-  createChannel,
-  createDelivery,
-  createRule,
-  deleteChannel,
-  deleteRule,
-  getChannel,
-  getChannels,
-  getDeliveriesWithDetails,
-  getDelivery,
-  getEvent,
-  getRules,
-  insertNotificationEvents,
-  retryDelivery,
-  setChannelEnabled,
-  setRuleEnabled,
-  updateChannel,
-  updateRule,
-  type DeliveryWithDetailsRow,
-  type NewRuleFields,
-  type RuleWithChannelRow,
-} from "./repository";
+import { getRepository } from "@/lib/runtime/repository";
+import type { DeliveryWithDetailsRow, NewRuleFields, RuleWithChannelRow } from "./repository";
 import { deliverDelivery } from "./service";
 import { parseWebhookConfig, validateWebhookUrl, defaultLookup } from "./senders/webhook";
 import { parseEmailConfig } from "./senders/email";
@@ -40,11 +20,8 @@ import {
   type NotificationLanguage,
 } from "./i18n";
 import { DEFAULT_NOTIFICATION_TIMEZONE, isValidTimezone } from "./timezone";
-import { hasChannelSecret, setChannelSecret } from "./secrets";
 import { createSender } from "./senders/factory";
-import { getDomainById, getDomains } from "@/lib/domains";
 import { requireAdmin } from "@/lib/auth/admin";
-import { db } from "@/db";
 import type {
   ChannelType,
   DeliveryStatus,
@@ -129,10 +106,11 @@ export async function getNotificationsOverviewAction(): Promise<NotificationsOve
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
   }
+  const repo = await getRepository();
   try {
-    const channels = getChannels();
-    const rules = getRules();
-    const deliveries = getDeliveriesWithDetails();
+    const channels = await repo.getChannels();
+    const rules = await repo.getRules();
+    const deliveries = await repo.getDeliveriesWithDetails();
     return {
       ok: true,
       channels: channels.map(toChannelView),
@@ -155,7 +133,8 @@ export async function retryDeliveryAction(deliveryId: number): Promise<RetryDeli
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
   }
-  const delivery = getDelivery(deliveryId);
+  const repo = await getRepository();
+  const delivery = await repo.getDelivery(deliveryId);
 
   if (!delivery) {
     return { ok: false, error: "Delivery not found." };
@@ -166,17 +145,17 @@ export async function retryDeliveryAction(deliveryId: number): Promise<RetryDeli
 
   // failed → pending so deliverDelivery can claim it. The CAS inside
   // retryDelivery returns false when a concurrent retry already flipped it.
-  if (!retryDelivery(deliveryId)) {
+  if (!(await repo.retryDelivery(deliveryId))) {
     return { ok: false, error: "Delivery could not be retried." };
   }
 
-  const pending = getDelivery(deliveryId);
+  const pending = await repo.getDelivery(deliveryId);
   if (!pending) {
     return { ok: false, error: "Delivery not found." };
   }
 
-  const channel = getChannel(pending.channelId);
-  const event = getEvent(pending.eventId);
+  const channel = await repo.getChannel(pending.channelId);
+  const event = await repo.getEvent(pending.eventId);
 
   if (!channel || !event) {
     return { ok: false, error: "Delivery channel or event is missing." };
@@ -234,8 +213,9 @@ export async function sendTestNotificationAction(
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR, code: "unauthorized" };
   }
+  const repo = await getRepository();
 
-  const channel = getChannel(channelId);
+  const channel = await repo.getChannel(channelId);
   if (!channel) {
     return { ok: false, error: "Channel not found.", code: "channel_not_found" };
   }
@@ -251,7 +231,7 @@ export async function sendTestNotificationAction(
   }
   // Presence check only — never read the token value in the action layer.
   // The value is decrypted inside TelegramSender via getChannelSecret.
-  if (!hasChannelSecret(channel.id, "token")) {
+  if (!(await repo.hasChannelSecret(channel.id, "token"))) {
     return {
       ok: false,
       error: "Telegram token is not configured for this channel.",
@@ -262,7 +242,7 @@ export async function sendTestNotificationAction(
   // notification_events.domain_id is NOT NULL FK — reference an existing
   // domain for row integrity. No domain data is read for the message and
   // nothing is modified; the test message never names a domain.
-  const domains = getDomains();
+  const domains = await repo.getDomains();
   if (domains.length === 0) {
     return { ok: false, error: "No domain available for test notification.", code: "no_domain" };
   }
@@ -282,11 +262,11 @@ export async function sendTestNotificationAction(
 
   // Insert the event (dedupKey UNIQUE absorbs same-nonce replays) and create
   // EXACTLY ONE delivery directly for the target channel — no rule engine.
-  const [eventId] = insertNotificationEvents(db, [event]);
+  const [eventId] = await repo.insertNotificationEvents([event]);
   if (eventId === null) {
     return { ok: false, error: "Test notification was already sent.", code: "duplicate_request" };
   }
-  const deliveryId = createDelivery(eventId, channel.id);
+  const deliveryId = await repo.createDelivery(eventId, channel.id);
   if (deliveryId === null) {
     return {
       ok: false,
@@ -295,7 +275,7 @@ export async function sendTestNotificationAction(
     };
   }
 
-  const eventRow = getEvent(eventId);
+  const eventRow = await repo.getEvent(eventId);
   if (!eventRow) {
     return { ok: false, error: "Test notification event is missing.", code: "event_missing" };
   }
@@ -400,6 +380,7 @@ export async function createChannelAction(input: {
   if (!(await requireAdmin())) {
     return { ok: false, error: "unauthorized" };
   }
+  const repo = await getRepository();
   if (typeof input.type !== "string" || !CHANNEL_TYPES.has(input.type)) {
     return { ok: false, error: "invalid_channel_type" };
   }
@@ -416,7 +397,7 @@ export async function createChannelAction(input: {
   }
 
   try {
-    createChannel(input.type as ChannelType, input.name.trim(), validated.config);
+    await repo.createChannel(input.type as ChannelType, input.name.trim(), validated.config);
   } catch (error) {
     console.error("[notifications] createChannel failed:", error);
     return { ok: false, error: "create_failed" };
@@ -433,10 +414,11 @@ export async function updateChannelAction(input: {
   if (!(await requireAdmin())) {
     return { ok: false, error: "unauthorized" };
   }
+  const repo = await getRepository();
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_channel_id" };
   }
-  const channel = getChannel(input.id);
+  const channel = await repo.getChannel(input.id);
   if (!channel) {
     return { ok: false, error: "channel_not_found" };
   }
@@ -466,7 +448,7 @@ export async function updateChannelAction(input: {
   }
 
   try {
-    if (!updateChannel(input.id, fields)) {
+    if (!(await repo.updateChannel(input.id, fields))) {
       return { ok: false, error: "channel_not_found" };
     }
   } catch (error) {
@@ -490,8 +472,9 @@ export async function setChannelEnabledAction(input: {
   if (typeof input.enabled !== "boolean") {
     return { ok: false, error: "invalid_enabled" };
   }
+  const repo = await getRepository();
   try {
-    if (!setChannelEnabled(input.id, input.enabled)) {
+    if (!(await repo.setChannelEnabled(input.id, input.enabled))) {
       return { ok: false, error: "channel_not_found" };
     }
   } catch (error) {
@@ -509,8 +492,9 @@ export async function deleteChannelAction(input: { id: unknown }): Promise<CrudR
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_channel_id" };
   }
+  const repo = await getRepository();
   try {
-    if (!deleteChannel(input.id)) {
+    if (!(await repo.deleteChannel(input.id))) {
       return { ok: false, error: "channel_not_found" };
     }
   } catch (error) {
@@ -600,6 +584,7 @@ export async function saveTelegramChannelAction(input: {
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
   }
+  const repo = await getRepository();
 
   if (typeof input.name !== "string" || input.name.trim().length === 0) {
     return { ok: false, error: "invalid_name" };
@@ -638,7 +623,7 @@ export async function saveTelegramChannelAction(input: {
 
   let existing: NotificationChannel | undefined;
   if (channelId !== null) {
-    existing = getChannel(channelId);
+    existing = await repo.getChannel(channelId);
     if (!existing) {
       return { ok: false, error: "channel_not_found" };
     }
@@ -662,7 +647,7 @@ export async function saveTelegramChannelAction(input: {
     // tokenless state unless a secret (or legacy env ref) already exists.
     // `existing` is guaranteed here (channelId !== null → fetched above).
     const existingChannel = existing as NotificationChannel;
-    const hasSecret = hasChannelSecret(channelId, TELEGRAM_TOKEN_SECRET_KEY);
+    const hasSecret = await repo.hasChannelSecret(channelId, TELEGRAM_TOKEN_SECRET_KEY);
     const hasLegacy = hasLegacyTelegramSecret(existingChannel.config);
     if (!hasSecret && !hasLegacy) {
       return { ok: false, error: "token_required" };
@@ -688,21 +673,21 @@ export async function saveTelegramChannelAction(input: {
 
   try {
     if (channelId === null) {
-      const id = createChannel("telegram", name, config);
+      const id = await repo.createChannel("telegram", name, config);
       if (token.length > 0) {
-        setChannelSecret(id, TELEGRAM_TOKEN_SECRET_KEY, token);
+        await repo.setChannelSecret(id, TELEGRAM_TOKEN_SECRET_KEY, token);
       }
       if (!input.enabled) {
-        setChannelEnabled(id, false);
+        await repo.setChannelEnabled(id, false);
       }
     } else {
-      updateChannel(channelId, { name, config });
+      await repo.updateChannel(channelId, { name, config });
       if (token.length > 0) {
         // Upsert: replaces the old encrypted secret.
-        setChannelSecret(channelId, TELEGRAM_TOKEN_SECRET_KEY, token);
+        await repo.setChannelSecret(channelId, TELEGRAM_TOKEN_SECRET_KEY, token);
       }
       if (((existing as NotificationChannel).enabled === 1) !== input.enabled) {
-        setChannelEnabled(channelId, input.enabled);
+        await repo.setChannelEnabled(channelId, input.enabled);
       }
     }
   } catch (error) {
@@ -727,14 +712,18 @@ export async function getChannelSecretStatusAction(input: {
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
   }
+  const repo = await getRepository();
   if (typeof input.channelId !== "number" || !Number.isInteger(input.channelId)) {
     return { ok: false, error: "invalid_channel_id" };
   }
-  const channel = getChannel(input.channelId);
+  const channel = await repo.getChannel(input.channelId);
   if (!channel) {
     return { ok: false, error: "channel_not_found" };
   }
-  return { ok: true, hasToken: hasChannelSecret(input.channelId, TELEGRAM_TOKEN_SECRET_KEY) };
+  return {
+    ok: true,
+    hasToken: await repo.hasChannelSecret(input.channelId, TELEGRAM_TOKEN_SECRET_KEY),
+  };
 }
 
 interface RuleWriteInput {
@@ -749,16 +738,17 @@ interface RuleWriteInput {
 type ValidatedRule = NewRuleFields;
 
 /** Validate a rule input; null source/eventType/domainId mean "All". */
-function validateRuleWriteInput(
+async function validateRuleWriteInput(
   input: RuleWriteInput,
-): { ok: true; value: ValidatedRule } | { ok: false; error: string } {
+): Promise<{ ok: true; value: ValidatedRule } | { ok: false; error: string }> {
+  const repo = await getRepository();
   if (typeof input.name !== "string" || input.name.trim().length === 0) {
     return { ok: false, error: "invalid_name" };
   }
   if (typeof input.channelId !== "number" || !Number.isInteger(input.channelId)) {
     return { ok: false, error: "invalid_channel_id" };
   }
-  const channel = getChannel(input.channelId);
+  const channel = await repo.getChannel(input.channelId);
   if (!channel) {
     return { ok: false, error: "channel_not_found" };
   }
@@ -778,7 +768,7 @@ function validateRuleWriteInput(
     if (typeof domainId !== "number" || !Number.isInteger(domainId)) {
       return { ok: false, error: "invalid_domain_id" };
     }
-    const domain = getDomainById(domainId);
+    const domain = await repo.getDomainById(domainId);
     if (!domain) {
       return { ok: false, error: "domain_not_found" };
     }
@@ -805,12 +795,13 @@ export async function createRuleAction(input: RuleWriteInput): Promise<CrudResul
   if (!(await requireAdmin())) {
     return { ok: false, error: "unauthorized" };
   }
-  const validated = validateRuleWriteInput(input);
+  const repo = await getRepository();
+  const validated = await validateRuleWriteInput(input);
   if (!validated.ok) {
     return validated;
   }
   try {
-    createRule(validated.value);
+    await repo.createRule(validated.value);
   } catch (error) {
     console.error("[notifications] createRule failed:", error);
     return { ok: false, error: "create_failed" };
@@ -828,12 +819,13 @@ export async function updateRuleAction(
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_rule_id" };
   }
-  const validated = validateRuleWriteInput(input);
+  const repo = await getRepository();
+  const validated = await validateRuleWriteInput(input);
   if (!validated.ok) {
     return validated;
   }
   try {
-    if (!updateRule(input.id, validated.value)) {
+    if (!(await repo.updateRule(input.id, validated.value))) {
       return { ok: false, error: "rule_not_found" };
     }
   } catch (error) {
@@ -857,8 +849,9 @@ export async function setRuleEnabledAction(input: {
   if (typeof input.enabled !== "boolean") {
     return { ok: false, error: "invalid_enabled" };
   }
+  const repo = await getRepository();
   try {
-    if (!setRuleEnabled(input.id, input.enabled)) {
+    if (!(await repo.setRuleEnabled(input.id, input.enabled))) {
       return { ok: false, error: "rule_not_found" };
     }
   } catch (error) {
@@ -876,8 +869,9 @@ export async function deleteRuleAction(input: { id: unknown }): Promise<CrudResu
   if (typeof input.id !== "number" || !Number.isInteger(input.id)) {
     return { ok: false, error: "invalid_rule_id" };
   }
+  const repo = await getRepository();
   try {
-    if (!deleteRule(input.id)) {
+    if (!(await repo.deleteRule(input.id))) {
       return { ok: false, error: "rule_not_found" };
     }
   } catch (error) {

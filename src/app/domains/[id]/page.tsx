@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getDomainById, getExpirationReminders, getRegistrationProvider } from "@/lib/domains";
+import { getRegistrationProvider } from "@/lib/domains";
+import { getRepository } from "@/lib/runtime/repository";
 import { formatDate } from "@/lib/format";
 import { getDictionary, getLocale } from "@/lib/i18n";
 import { interpolate } from "@/lib/i18n/config";
@@ -15,12 +16,9 @@ import { EditDomainButton } from "@/components/edit-domain-form";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { requirePageAccess } from "@/lib/auth/admin";
-import { getDnsSnapshots, getLatestDnsSnapshot } from "@/lib/dns/repository";
 import { diffDnsSnapshots } from "@/lib/dns";
 import { DNS_RECORD_TYPES, type DnsRecord } from "@/lib/dns";
-import { getSslHistory, getLatestSslSnapshot } from "@/lib/ssl/repository";
 import { daysRemaining, type SslStatus } from "@/lib/ssl";
-import { getHttpHistory, getLatestHttpSnapshot } from "@/lib/http/repository";
 import { type HttpStatus } from "@/lib/http";
 import type { Locale } from "@/lib/i18n/config";
 
@@ -147,7 +145,8 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
     notFound();
   }
 
-  const domain = getDomainById(domainId);
+  const repo = await getRepository();
+  const domain = await repo.getDomainById(domainId);
 
   if (!domain) {
     notFound();
@@ -156,7 +155,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
   const locale: Locale = await getLocale();
   const dict = getDictionary(locale);
 
-  const reminders = getExpirationReminders(domain.id);
+  const reminders = await repo.getExpirationReminders(domain.id);
   const provider = domain.registrationProvider
     ? getRegistrationProvider(domain.registrationProvider)
     : undefined;
@@ -169,16 +168,16 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
     domain.registrationProvider !== null;
   const showRdapSection = rdapAvailable || hasManualData;
 
-  const latestSnapshot = getLatestDnsSnapshot(domain.id);
-  const history = getDnsSnapshots(domain.id, 10);
+  const latestSnapshot = await repo.getLatestDnsSnapshot(domain.id);
+  const history = await repo.getDnsSnapshots(domain.id, 10);
   // Latest check's changes = diff between the two most recent snapshots.
   const latestChanges = history.length >= 2 ? diffDnsSnapshots(history[1], history[0]) : [];
 
-  const latestSsl = getLatestSslSnapshot(domain.id);
-  const sslHistory = getSslHistory(domain.id, 10);
+  const latestSsl = await repo.getLatestSslSnapshot(domain.id);
+  const sslHistory = await repo.getSslHistory(domain.id, 10);
 
-  const latestHttp = getLatestHttpSnapshot(domain.id);
-  const httpHistory = getHttpHistory(domain.id, 10);
+  const latestHttp = await repo.getLatestHttpSnapshot(domain.id);
+  const httpHistory = await repo.getHttpHistory(domain.id, 10);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-12">

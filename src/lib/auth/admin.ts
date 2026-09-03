@@ -2,8 +2,9 @@
  * Admin authentication service (Phase 9E).
  *
  * Owns the single `admin_settings` row, session cookies and the guard
- * functions. DB access follows the project convention (injectable target
- * with the global db as default) so tests can pass an in-memory db.
+ * functions. Synchronous DB access lives in `./admin-db` (a tiny module with
+ * no dependency on the repository singleton) so the repository adapters can
+ * reuse it without an import cycle.
  *
  * Security invariants:
  * - Passwords and recovery codes are stored ONLY as scrypt hashes.
@@ -15,12 +16,10 @@
  */
 import "server-only";
 
-import { eq } from "drizzle-orm";
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { db } from "@/db";
-import { adminSettings, type AdminSettingsRow, type Schema } from "@/db/schema";
+import type { Repository } from "@/db/repository";
+import { getRepository } from "@/lib/runtime/repository";
 import { generateRecoveryCode, hashPassword, verifyPassword } from "./password";
 import {
   SESSION_COOKIE_NAME,
@@ -29,99 +28,28 @@ import {
   verifySessionValue,
 } from "./session";
 
-export type AdminDb = BetterSQLite3Database<Schema>;
-
-// ---------------------------------------------------------------------------
-// DB access (injectable for tests)
-// ---------------------------------------------------------------------------
-
-export function getAdminRow(target: AdminDb = db): AdminSettingsRow | undefined {
-  return target.select().from(adminSettings).limit(1).get();
-}
-
-export function insertAdminRow(
-  target: AdminDb = db,
-  values: {
-    passwordHash: string;
-    recoveryCodeHash: string;
-    sessionSecret: string;
-    encryptionKey?: string;
-  },
-): void {
-  target.insert(adminSettings).values(values).run();
-}
-
-export function updateAdminRow(
-  target: AdminDb = db,
-  id: number,
-  values: Partial<{
-    passwordHash: string | null;
-    recoveryCodeHash: string | null;
-    sessionSecret: string;
-    encryptionKey: string;
-    updatedAt: Date;
-  }>,
-): void {
-  target
-    .update(adminSettings)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(adminSettings.id, id))
-    .run();
-}
-
-// ---------------------------------------------------------------------------
-// Configuration state
-// ---------------------------------------------------------------------------
-
-/** True once the setup wizard has stored a password hash. */
-export function isAdminConfigured(target: AdminDb = db): boolean {
-  const row = getAdminRow(target);
-  return Boolean(row?.passwordHash);
-}
-
-/**
- * HMAC key for signing session cookies. Prefers the SESSION_SECRET env var
- * (stable across restarts, recommended in production); falls back to the
- * auto-generated value persisted in the DB row (rotated on recovery so old
- * sessions die). Never exposed outside this module.
- */
-export function getSessionSecret(target: AdminDb = db): string {
-  const envSecret = process.env.SESSION_SECRET;
-  if (envSecret) {
-    return envSecret;
-  }
-  const row = getAdminRow(target);
-  if (!row?.sessionSecret) {
-    throw new Error("Admin session secret is not initialized");
-  }
-  return row.sessionSecret;
-}
-
-/**
- * Encryption key reserved for Phase 9F secret storage. Prefers the
- * ENCRYPTION_KEY env var; falls back to the persisted value created at
- * setup. MUST be stable across restarts (never random per-process), or
- * stored secrets become undecryptable. Not used by Phase 9E.
- */
-export function getEncryptionKey(target: AdminDb = db): string {
-  const envKey = process.env.ENCRYPTION_KEY;
-  if (envKey) {
-    return envKey;
-  }
-  const row = getAdminRow(target);
-  if (!row?.encryptionKey) {
-    throw new Error("Admin encryption key is not initialized");
-  }
-  return row.encryptionKey;
-}
+export {
+  getAdminRow,
+  insertAdminRow,
+  updateAdminRow,
+  isAdminConfigured,
+  getSessionSecret,
+  getEncryptionKey,
+  type AdminDb,
+} from "./admin-db";
 
 // ---------------------------------------------------------------------------
 // Session cookies
 // ---------------------------------------------------------------------------
 
-export async function setAdminSessionCookie(): Promise<void> {
+export async function setAdminSessionCookie(repo?: Repository): Promise<void> {
+  const r = repo ?? (await getRepository());
   const store = await cookies();
-  store.set(SESSION_COOKIE_NAME, createSessionValue(getSessionSecret()), sessionCookieOptions());
+  store.set(
+    SESSION_COOKIE_NAME,
+    createSessionValue(await r.getSessionSecret()),
+    sessionCookieOptions(),
+  );
 }
 
 export async function clearAdminSessionCookie(): Promise<void> {
@@ -129,14 +57,15 @@ export async function clearAdminSessionCookie(): Promise<void> {
   store.delete(SESSION_COOKIE_NAME);
 }
 
-export async function isAdminAuthenticated(target: AdminDb = db): Promise<boolean> {
+export async function isAdminAuthenticated(repo?: Repository): Promise<boolean> {
+  const r = repo ?? (await getRepository());
   const store = await cookies();
   const value = store.get(SESSION_COOKIE_NAME)?.value;
   if (!value) {
     return false;
   }
   try {
-    return verifySessionValue(value, getSessionSecret(target));
+    return verifySessionValue(value, await r.getSessionSecret());
   } catch {
     return false;
   }
@@ -151,19 +80,20 @@ export async function isAdminAuthenticated(target: AdminDb = db): Promise<boolea
  * Must be called at the top of every mutating action; never rely solely on
  * page-level redirects.
  */
-export async function requireAdmin(): Promise<boolean> {
-  return isAdminAuthenticated();
+export async function requireAdmin(repo?: Repository): Promise<boolean> {
+  return isAdminAuthenticated(repo);
 }
 
 /**
  * Page (RSC) guard: redirects unconfigured installs to /setup and
  * unauthenticated visitors to /login.
  */
-export async function requirePageAccess(target: AdminDb = db): Promise<void> {
-  if (!isAdminConfigured(target)) {
+export async function requirePageAccess(repo?: Repository): Promise<void> {
+  const r = repo ?? (await getRepository());
+  if (!(await r.isAdminConfigured())) {
     redirect("/setup");
   }
-  if (!(await isAdminAuthenticated(target))) {
+  if (!(await isAdminAuthenticated(repo))) {
     redirect("/login");
   }
 }
@@ -177,12 +107,16 @@ export async function requirePageAccess(target: AdminDb = db): Promise<void> {
  * password and a fresh recovery code, signs a session, and returns the
  * recovery code exactly once (the caller shows it to the user).
  */
-export function setupAdmin(password: string, target: AdminDb = db): { recoveryCode: string } {
-  if (isAdminConfigured(target)) {
+export async function setupAdmin(
+  password: string,
+  repo?: Repository,
+): Promise<{ recoveryCode: string }> {
+  const r = repo ?? (await getRepository());
+  if (await r.isAdminConfigured()) {
     throw new Error("Admin already configured");
   }
   const recoveryCode = generateRecoveryCode();
-  insertAdminRow(target, {
+  await r.insertAdminRow({
     passwordHash: hashPassword(password),
     recoveryCodeHash: hashPassword(recoveryCode),
     sessionSecret: generateRecoveryCode() + generateRecoveryCode(), // 32-byte hex secret
@@ -195,8 +129,9 @@ export function setupAdmin(password: string, target: AdminDb = db): { recoveryCo
  * password" so the response never reveals which one occurred (no account
  * enumeration).
  */
-export function loginAdmin(password: string, target: AdminDb = db): boolean {
-  const row = getAdminRow(target);
+export async function loginAdmin(password: string, repo?: Repository): Promise<boolean> {
+  const r = repo ?? (await getRepository());
+  const row = await r.getAdminRow();
   if (!row?.passwordHash) {
     return false;
   }
@@ -212,12 +147,13 @@ export function loginAdmin(password: string, target: AdminDb = db): boolean {
  * the password hash and the recovery code (old code dies, new code returned
  * once). Returns false for invalid/expired codes.
  */
-export function recoverAdmin(
+export async function recoverAdmin(
   recoveryCode: string,
   newPassword: string,
-  target: AdminDb = db,
-): { ok: true; recoveryCode: string } | { ok: false } {
-  const row = getAdminRow(target);
+  repo?: Repository,
+): Promise<{ ok: true; recoveryCode: string } | { ok: false }> {
+  const r = repo ?? (await getRepository());
+  const row = await r.getAdminRow();
   if (!row?.recoveryCodeHash || !row.passwordHash) {
     return { ok: false };
   }
@@ -225,7 +161,7 @@ export function recoverAdmin(
     return { ok: false };
   }
   const nextRecoveryCode = generateRecoveryCode();
-  updateAdminRow(target, row.id, {
+  await r.updateAdminRow(row.id, {
     passwordHash: hashPassword(newPassword),
     recoveryCodeHash: hashPassword(nextRecoveryCode),
     sessionSecret: generateRecoveryCode() + generateRecoveryCode(),

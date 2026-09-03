@@ -1,14 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import {
-  createDomain,
-  deleteDomain,
-  getDomainById,
-  setExpirationReminders,
-  updateDomain,
-  updateDomainRdap,
-} from "./repository";
+import { getRepository } from "@/lib/runtime/repository";
 import { normalizeHostname, validateManualDates, normalizeReminderDaysList } from "./validation";
 import { validateManagementUrl } from "./providers";
 import { queryRdapWithFallback } from "@/lib/rdap";
@@ -114,6 +107,7 @@ export async function createDomainAction(
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
   }
+  const repo = await getRepository();
   const result = normalizeHostname(input);
 
   if (!result.ok) {
@@ -127,7 +121,7 @@ export async function createDomainAction(
 
   let domain;
   try {
-    domain = createDomain(result.hostname, {
+    domain = await repo.createDomain(result.hostname, {
       expirationSource: validated.fields.expirationSource,
       registrationDate: validated.fields.registrationDate,
       expirationDate: validated.fields.expirationDate,
@@ -145,13 +139,13 @@ export async function createDomainAction(
   }
 
   if (validated.fields.reminders.length > 0) {
-    setExpirationReminders(domain.id, validated.fields.reminders);
+    await repo.setExpirationReminders(domain.id, validated.fields.reminders);
   }
 
   if (domain.expirationSource !== "manual") {
     try {
       const { data, ownership } = await queryRdapWithFallback(domain.hostname);
-      updateDomainRdap(domain.id, data, ownership);
+      await repo.updateDomainRdap(domain.id, data, ownership);
     } catch (error) {
       // Domain creation still succeeds; the detail page shows
       // "RDAP information unavailable." with a manual Refresh option.
@@ -177,7 +171,8 @@ export async function updateDomainAction(
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
   }
-  const domain = getDomainById(id);
+  const repo = await getRepository();
+  const domain = await repo.getDomainById(id);
 
   if (!domain) {
     return { ok: false, error: "Domain not found." };
@@ -188,14 +183,14 @@ export async function updateDomainAction(
     return { ok: false, error: validated.error };
   }
 
-  updateDomain(id, {
+  await repo.updateDomain(id, {
     expirationSource: validated.fields.expirationSource,
     registrationDate: validated.fields.registrationDate,
     expirationDate: validated.fields.expirationDate,
     registrationProvider: validated.fields.registrationProvider,
     registrationProviderUrl: validated.fields.registrationProviderUrl,
   });
-  setExpirationReminders(id, validated.fields.reminders);
+  await repo.setExpirationReminders(id, validated.fields.reminders);
 
   revalidatePath(`/domains/${id}`);
   revalidatePath("/");
@@ -210,7 +205,8 @@ export async function refreshRdapAction(id: number): Promise<DomainActionResult>
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
   }
-  const domain = getDomainById(id);
+  const repo = await getRepository();
+  const domain = await repo.getDomainById(id);
 
   if (!domain) {
     return { ok: false, error: "Domain not found." };
@@ -218,7 +214,7 @@ export async function refreshRdapAction(id: number): Promise<DomainActionResult>
 
   try {
     const { data, ownership } = await queryRdapWithFallback(domain.hostname);
-    updateDomainRdap(id, data, ownership);
+    await repo.updateDomainRdap(id, data, ownership);
   } catch (error) {
     console.error(`[rdap] refresh failed for domain ${id} (${domain.hostname}):`, error);
     return { ok: false, error: RDAP_UNAVAILABLE_MESSAGE };
@@ -233,8 +229,9 @@ export async function deleteDomainAction(id: number): Promise<DomainActionResult
   if (!(await requireAdmin())) {
     return { ok: false, error: UNAUTHORIZED_ERROR };
   }
+  const repo = await getRepository();
   try {
-    const deleted = deleteDomain(id);
+    const deleted = await repo.deleteDomain(id);
 
     if (!deleted) {
       return { ok: false, error: "Domain not found." };

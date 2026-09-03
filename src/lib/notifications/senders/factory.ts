@@ -17,18 +17,19 @@ import type { ChannelType, DeliverySender } from "../types";
 import { EmailSender } from "./email";
 import { WebhookSender } from "./webhook";
 import { TelegramSender } from "./telegram";
-import { getChannelSecret } from "../secrets";
-// Phase 11D: import from the repository module directly, NOT the
-// `@/lib/domains` barrel. The barrel re-exports `./actions`, which pulls
-// in `next/cache`; under `--conditions=react-server` (worker CLI) and
-// NODE_ENV=production that resolves next's react-server *source* files,
-// which tsx's CJS transform breaks on (`React.createContext is not a
-// function`). The worker only needs the repository lookup, so bypass the
-// barrel entirely.
-import { getDomainById } from "@/lib/domains/repository";
+// Phase 14C-1: the factory resolves runtime data through the async
+// Repository contract (Node SQLite / Cloudflare D1) instead of the sync
+// feature repositories. The worker + actions pass the repository through
+// createSender below; business code never touches a SQL driver.
+import type { Repository } from "@/db/repository";
+import { getRepository } from "@/lib/runtime/repository";
 
 /** Instantiate the sender for a channel type. Email/webhook (V0.6+) / telegram (V0.7.x+9H). */
-export function createSender(type: ChannelType): DeliverySender {
+export function createSender(
+  type: ChannelType,
+  repo?: Repository,
+  env?: Record<string, string | undefined>,
+): DeliverySender {
   switch (type) {
     case "email":
       return new EmailSender();
@@ -36,10 +37,15 @@ export function createSender(type: ChannelType): DeliverySender {
       return new WebhookSender();
     case "telegram":
       return new TelegramSender({
-        resolveDomain: (domainId) => getDomainById(domainId)?.hostname,
+        // Operator-level endpoint override (prototype/E2E) is honored by
+        // the sender via this env map. Not user-configurable (SSRF guard).
+        env,
+        resolveDomain: async (domainId) =>
+          (await (repo ?? (await getRepository())).getDomainById(domainId))?.hostname,
         // Phase 9H priority A: encrypted notification_secrets token; the
         // sender falls back to legacy env (config.secretRef) when null.
-        resolveSecret: (channelId, key) => Promise.resolve(getChannelSecret(channelId, key)),
+        resolveSecret: async (channelId, key) =>
+          (repo ?? (await getRepository())).getChannelSecret(channelId, key),
       });
   }
 }

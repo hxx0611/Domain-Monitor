@@ -9,12 +9,12 @@
 
 import {
   clearAdminSessionCookie,
-  isAdminConfigured,
   loginAdmin,
   recoverAdmin,
   setAdminSessionCookie,
   setupAdmin,
 } from "./admin";
+import { getRepository } from "@/lib/runtime/repository";
 
 export type AuthActionResult = { ok: true; recoveryCode?: string } | { ok: false; error: string };
 
@@ -30,21 +30,22 @@ function validateNewPassword(
 }
 
 export async function setupAdminAction(input: { password: unknown }): Promise<AuthActionResult> {
-  if (isAdminConfigured()) {
+  const repo = await getRepository();
+  if (await repo.isAdminConfigured()) {
     return { ok: false, error: "auth.errors.alreadyConfigured" };
   }
   const password = validateNewPassword(input.password);
   if (!password.ok) {
     return password;
   }
-  const { recoveryCode } = setupAdmin(password.value);
+  const { recoveryCode } = await setupAdmin(password.value);
   await setAdminSessionCookie();
   return { ok: true, recoveryCode };
 }
 
 export async function loginAdminAction(input: { password: unknown }): Promise<AuthActionResult> {
   const password = typeof input.password === "string" ? input.password : "";
-  const ok = loginAdmin(password);
+  const ok = await loginAdmin(password);
   if (!ok) {
     // Uniform error — do not reveal "not configured" vs "wrong password".
     return { ok: false, error: "auth.errors.invalidCredentials" };
@@ -67,7 +68,7 @@ export async function recoverAdminAction(input: {
   if (!password.ok) {
     return password;
   }
-  const result = recoverAdmin(recoveryCode, password.value);
+  const result = await recoverAdmin(recoveryCode, password.value);
   if (!result.ok) {
     return { ok: false, error: "auth.errors.invalidRecoveryCode" };
   }

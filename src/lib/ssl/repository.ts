@@ -13,7 +13,7 @@ import { desc, eq, inArray } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { db } from "@/db";
 import { sslCertificates, sslSnapshots, type Schema } from "@/db/schema";
-import { insertEventsAndGenerateDeliveries } from "@/lib/notifications/service";
+import { insertEventsAndGenerateDeliveries } from "@/lib/notifications/event-deliveries";
 import type { NotificationEvent } from "@/lib/notifications/types";
 import type { SslCertificate, SslSnapshot, SslStatus } from "./types";
 

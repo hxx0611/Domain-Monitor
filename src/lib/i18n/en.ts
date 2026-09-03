@@ -243,7 +243,7 @@ export const en = {
       name: "Name",
       type: "Type",
       chatId: "Chat ID",
-      chatIdHint: "Numeric chat id from Telegram (e.g. 1616146471).",
+      chatIdHint: "Numeric chat id from Telegram (e.g. 100000001).",
       language: "Notification Language",
       languageEnglish: "English",
       languageChinese: "简体中文",
