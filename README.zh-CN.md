@@ -282,18 +282,18 @@ pnpm db:studio     # 打开可视化数据库浏览器
 - [x] **V0.7** — 通知投递 Worker
 - [x] **V0.7.1** — 双语 UI
 - [x] **V0.7.3** — 监控错误分类
-- [x] **V0.8.0** — 管理员认证、Telegram 通知与加密密钥存储
-- [x] **V0.8.1** — RDAP Ownership 与到期信息修复（bugfix 版本）
-- [x] **V0.8.2** — 手动到期、登记平台与到期提醒（Worker 自动投递已在 v0.8.3 于生产启用）
-- [x] **V0.8.3** — 生产 Worker 启用（每小时 watchdog、到期提醒投递管道、Worker 运行时修复）+ 0007 migration journal 登记修复
-- [x] **V0.8.4** — 受控测试通知 action（`sendTestNotificationAction`，授权、去重、单次发送限制、防泄漏）
-- [x] **V0.8.5** — 通知时区（channel 级 IANA 时区、`Intl.DateTimeFormat` 渲染、零迁移）
-- [x] **V0.8.6** — bugfix 版本
-- [x] **V0.8.7** — 通知时区打磨（UI 中校验 channel 时区字段，800 → 813 测试）
-- [x] **V0.8.8** — Windows CI 临时 DB 删除修复（`closeDb()` helper）+ 域名/DNS action 测试覆盖（Phase 13B，849 测试）
-- [x] **运维（2026-08-20）** — 生产备份（Phase 13C，SQLite online backup API）、每日 QwenPaw cron `domain-monitor-daily-backup`（Asia/Shanghai 13:00、保留 7 天、NFS 持久存储、失败 → Telegram 告警）
-- [x] **审计（2026-08-20）** — Phase 13A 安全/可靠性审计（PASS）、Phase 13D SQLite→NFS 迁移 Preflight（**已阻止**：当前 NFSv3 `nolock` mount 不适合作为 SQLite 主库存储）
-- [x] **V0.8.9** — 文档与运维收尾（Phase 13A 审计报告归档；运维/容灾/交接文档更新；备份策略与 SQLite/NFS 限制已文档化）
+- [x] **V0.8.0** — 管理员认证
+- [x] **V0.8.1** — RDAP 所有权与到期修复
+- [x] **V0.8.2** — 到期提醒
+- [x] **V0.8.3** — 生产 Worker
+- [x] **V0.8.4** — 测试通知
+- [x] **V0.8.5** — 通知时区
+- [x] **V0.8.6** — 稳定性修复
+- [x] **V0.8.7** — 通知时区优化
+- [x] **V0.8.8** — Windows CI 与测试覆盖
+- [x] **运维** — 生产备份
+- [x] **审计** — 安全与可靠性
+- [x] **V0.8.9** — 文档与运维收尾
 
 ## 生产持久化（当前）
 
