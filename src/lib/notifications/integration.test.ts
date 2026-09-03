@@ -14,6 +14,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { domains, notificationChannels, notificationEvents, notificationRules } from "@/db/schema";
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
 import { createTestDb } from "../../../test/helpers";
 import { deliverDelivery, generateDeliveries } from "./service";
 import { getDelivery, getEventDeliveries, retryDelivery, type NotificationDb } from "./repository";
@@ -135,7 +136,9 @@ describe("Phase 4D — Webhook end-to-end", () => {
     expect(delivery.status).toBe("pending");
 
     const fetchFn = fakeFetch([okResponse(200)]);
-    const result = await deliverDelivery(delivery.id, event, webhookSender(fetchFn), { db });
+    const result = await deliverDelivery(delivery.id, event, webhookSender(fetchFn), {
+      repo: createSQLiteRepository(db),
+    });
 
     expect(result.status).toBe("sent");
     const after = getDelivery(delivery.id, db)!;
@@ -169,9 +172,11 @@ describe("Phase 4D — Webhook end-to-end", () => {
       whDelivery.id,
       event,
       webhookSender(fakeFetch([new Response("boom", { status: 500 })])),
-      { db },
+      { repo: createSQLiteRepository(db) },
     );
-    const mailResult = await deliverDelivery(mailDelivery.id, event, emailSender(), { db });
+    const mailResult = await deliverDelivery(mailDelivery.id, event, emailSender(), {
+      repo: createSQLiteRepository(db),
+    });
 
     expect(whResult.status).toBe("failed");
     expect((whResult as { error?: string }).error).toBe("Webhook returned HTTP 500.");
@@ -201,7 +206,9 @@ describe("Phase 4D — Webhook end-to-end", () => {
     const [delivery] = getEventDeliveries(eventId, db);
 
     const sender = throwingSender();
-    const result = await deliverDelivery(delivery.id, event, sender, { db });
+    const result = await deliverDelivery(delivery.id, event, sender, {
+      repo: createSQLiteRepository(db),
+    });
 
     expect(result.status).toBe("failed");
     expect((result as { error?: string }).error).toBe("unexpected sender crash");
@@ -231,7 +238,9 @@ describe("Phase 4D — Email end-to-end", () => {
     const [delivery] = getEventDeliveries(eventId, db);
 
     const fetchFn = fakeFetch([okResponse(200)]);
-    const result = await deliverDelivery(delivery.id, event, emailSender(fetchFn), { db });
+    const result = await deliverDelivery(delivery.id, event, emailSender(fetchFn), {
+      repo: createSQLiteRepository(db),
+    });
 
     expect(result.status).toBe("sent");
     expect(getDelivery(delivery.id, db)!.status).toBe("sent");
@@ -269,7 +278,7 @@ describe("Phase 4D — Email end-to-end", () => {
       delivery.id,
       event,
       emailSender(fakeFetch([new Response("nope", { status: 503 })])),
-      { db },
+      { repo: createSQLiteRepository(db) },
     );
 
     expect(result.status).toBe("failed");
@@ -294,8 +303,12 @@ describe("Phase 4D — concurrency & terminal states", () => {
 
     // Both workers race on the SAME pending delivery.
     const results = await Promise.all([
-      deliverDelivery(delivery.id, event, webhookSender(fakeFetch([okResponse(200)])), { db }),
-      deliverDelivery(delivery.id, event, webhookSender(fakeFetch([okResponse(200)])), { db }),
+      deliverDelivery(delivery.id, event, webhookSender(fakeFetch([okResponse(200)])), {
+        repo: createSQLiteRepository(db),
+      }),
+      deliverDelivery(delivery.id, event, webhookSender(fakeFetch([okResponse(200)])), {
+        repo: createSQLiteRepository(db),
+      }),
     ]);
     // One sent, one skipped; exactly one send happened.
     expect(results.map((r) => r.status).sort()).toEqual(["sent", "skipped"]);
@@ -314,12 +327,16 @@ describe("Phase 4D — concurrency & terminal states", () => {
 
     const fetchFn = fakeFetch([okResponse(200)]);
     const sender = webhookSender(fetchFn);
-    const first = await deliverDelivery(delivery.id, event, sender, { db });
+    const first = await deliverDelivery(delivery.id, event, sender, {
+      repo: createSQLiteRepository(db),
+    });
     expect(first.status).toBe("sent");
     expect(fetchFn.mock.calls).toHaveLength(1);
 
     // Second attempt on the SAME (now sent) delivery.
-    const second = await deliverDelivery(delivery.id, event, sender, { db });
+    const second = await deliverDelivery(delivery.id, event, sender, {
+      repo: createSQLiteRepository(db),
+    });
     expect(second.status).toBe("skipped");
     expect(fetchFn.mock.calls).toHaveLength(1); // no second request
     expect(getDelivery(delivery.id, db)!.attempts).toBe(1);
@@ -339,7 +356,7 @@ describe("Phase 4D — concurrency & terminal states", () => {
       delivery.id,
       event,
       webhookSender(fakeFetch([new Response("x", { status: 500 })])),
-      { db },
+      { repo: createSQLiteRepository(db) },
     );
     expect(first.status).toBe("failed");
     expect(getDelivery(delivery.id, db)!.attempts).toBe(1);
@@ -349,7 +366,9 @@ describe("Phase 4D — concurrency & terminal states", () => {
     expect(getDelivery(delivery.id, db)!.status).toBe("pending");
 
     // Second attempt succeeds → attempts = 2.
-    const second = await deliverDelivery(delivery.id, event, webhookSender(), { db });
+    const second = await deliverDelivery(delivery.id, event, webhookSender(), {
+      repo: createSQLiteRepository(db),
+    });
     expect(second.status).toBe("sent");
     const after = getDelivery(delivery.id, db)!;
     expect(after.status).toBe("sent");
@@ -377,12 +396,14 @@ describe("Phase 4D — multi-channel isolation", () => {
     generateDeliveries(eventId, event, { db });
     const [wh, mail] = getEventDeliveries(eventId, db);
 
-    const whResult = await deliverDelivery(wh.id, event, webhookSender(), { db });
+    const whResult = await deliverDelivery(wh.id, event, webhookSender(), {
+      repo: createSQLiteRepository(db),
+    });
     const mailResult = await deliverDelivery(
       mail.id,
       event,
       emailSender(fakeFetch([new Response("x", { status: 500 })])),
-      { db },
+      { repo: createSQLiteRepository(db) },
     );
 
     expect(whResult.status).toBe("sent");
@@ -419,7 +440,9 @@ describe("Phase 4D — idempotency & rollback safety", () => {
     generateDeliveries(eventId, event, { db });
     const [delivery] = getEventDeliveries(eventId, db);
 
-    await deliverDelivery(delivery.id, event, throwingSender(), { db });
+    await deliverDelivery(delivery.id, event, throwingSender(), {
+      repo: createSQLiteRepository(db),
+    });
 
     // Event row intact.
     expect(
@@ -448,7 +471,7 @@ describe("Phase 4D — idempotency & rollback safety", () => {
       delivery.id,
       event,
       webhookSender(fakeFetch([new Response("x", { status: 500 })])),
-      { db },
+      { repo: createSQLiteRepository(db) },
     );
 
     expect((result as { error?: string }).error).not.toContain(secretRef);
@@ -460,7 +483,9 @@ describe("Phase 4D — idempotency & rollback safety", () => {
   it("deliverDelivery on a missing delivery returns skipped", async () => {
     const db = createTestDb();
     const event = makeEvent();
-    const result = await deliverDelivery(999_999, event, webhookSender(), { db });
+    const result = await deliverDelivery(999_999, event, webhookSender(), {
+      repo: createSQLiteRepository(db),
+    });
     expect(result.status).toBe("skipped");
   });
 
@@ -474,7 +499,9 @@ describe("Phase 4D — idempotency & rollback safety", () => {
     const [delivery] = getEventDeliveries(eventId, db);
 
     // EmailSender (channelType "email") against a webhook channel.
-    const result = await deliverDelivery(delivery.id, event, emailSender(), { db });
+    const result = await deliverDelivery(delivery.id, event, emailSender(), {
+      repo: createSQLiteRepository(db),
+    });
 
     expect(result.status).toBe("failed");
     expect((result as { error?: string }).error).toBe("Sender type mismatch (expected webhook).");

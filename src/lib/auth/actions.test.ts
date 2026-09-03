@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAdminSessionCookie,
-  isAdminConfigured,
   loginAdmin,
   recoverAdmin,
   setAdminSessionCookie,
@@ -16,14 +15,20 @@ import {
 
 vi.mock("./admin", () => ({
   clearAdminSessionCookie: vi.fn(),
-  isAdminConfigured: vi.fn(),
   loginAdmin: vi.fn(),
   recoverAdmin: vi.fn(),
   setAdminSessionCookie: vi.fn(),
   setupAdmin: vi.fn(),
 }));
 
-const mockedIsAdminConfigured = vi.mocked(isAdminConfigured);
+vi.mock("@/lib/runtime/repository", () => ({
+  getRepository: vi.fn(),
+}));
+
+import { getRepository } from "@/lib/runtime/repository";
+
+const mRepo = { isAdminConfigured: vi.fn() };
+const mockedGetRepository = vi.mocked(getRepository);
 const mockedSetupAdmin = vi.mocked(setupAdmin);
 const mockedLoginAdmin = vi.mocked(loginAdmin);
 const mockedRecoverAdmin = vi.mocked(recoverAdmin);
@@ -31,13 +36,14 @@ const mockedSetSessionCookie = vi.mocked(setAdminSessionCookie);
 const mockedClearSessionCookie = vi.mocked(clearAdminSessionCookie);
 
 beforeEach(() => {
+  mockedGetRepository.mockResolvedValue(mRepo as never);
   vi.clearAllMocks();
 });
 
 describe("setupAdminAction", () => {
   it("returns the one-time recovery code on success", async () => {
-    mockedIsAdminConfigured.mockReturnValue(false);
-    mockedSetupAdmin.mockReturnValue({ recoveryCode: "ab".repeat(16) });
+    mRepo.isAdminConfigured.mockResolvedValue(false);
+    mockedSetupAdmin.mockResolvedValue({ recoveryCode: "ab".repeat(16) });
 
     const result = await setupAdminAction({ password: "correct horse battery staple" });
 
@@ -46,14 +52,14 @@ describe("setupAdminAction", () => {
   });
 
   it("rejects when already configured", async () => {
-    mockedIsAdminConfigured.mockReturnValue(true);
+    mRepo.isAdminConfigured.mockResolvedValue(true);
     const result = await setupAdminAction({ password: "correct horse battery staple" });
     expect(result).toEqual({ ok: false, error: "auth.errors.alreadyConfigured" });
     expect(mockedSetupAdmin).not.toHaveBeenCalled();
   });
 
   it("rejects short passwords without touching the admin module", async () => {
-    mockedIsAdminConfigured.mockReturnValue(false);
+    mRepo.isAdminConfigured.mockResolvedValue(false);
     const result = await setupAdminAction({ password: "short" });
     expect(result).toEqual({ ok: false, error: "auth.errors.passwordTooShort" });
     expect(mockedSetupAdmin).not.toHaveBeenCalled();
@@ -63,21 +69,21 @@ describe("setupAdminAction", () => {
 
 describe("loginAdminAction", () => {
   it("sets the session cookie on success", async () => {
-    mockedLoginAdmin.mockReturnValue(true);
+    mockedLoginAdmin.mockResolvedValue(true);
     const result = await loginAdminAction({ password: "correct horse battery staple" });
     expect(result).toEqual({ ok: true });
     expect(mockedSetSessionCookie).toHaveBeenCalledTimes(1);
   });
 
   it("returns the uniform error on failure (no account enumeration)", async () => {
-    mockedLoginAdmin.mockReturnValue(false);
+    mockedLoginAdmin.mockResolvedValue(false);
     const result = await loginAdminAction({ password: "wrong password" });
     expect(result).toEqual({ ok: false, error: "auth.errors.invalidCredentials" });
     expect(mockedSetSessionCookie).not.toHaveBeenCalled();
   });
 
   it("coerces non-string input to a failed login", async () => {
-    mockedLoginAdmin.mockReturnValue(false);
+    mockedLoginAdmin.mockResolvedValue(false);
     const result = await loginAdminAction({ password: 12345 });
     expect(result).toEqual({ ok: false, error: "auth.errors.invalidCredentials" });
   });
@@ -93,7 +99,7 @@ describe("logoutAdminAction", () => {
 
 describe("recoverAdminAction", () => {
   it("returns the new recovery code on success", async () => {
-    mockedRecoverAdmin.mockReturnValue({ ok: true, recoveryCode: "cd".repeat(16) });
+    mockedRecoverAdmin.mockResolvedValue({ ok: true, recoveryCode: "cd".repeat(16) });
     const result = await recoverAdminAction({
       recoveryCode: "ab".repeat(16),
       password: "a brand new password",
@@ -103,7 +109,7 @@ describe("recoverAdminAction", () => {
   });
 
   it("returns the uniform error for an invalid recovery code", async () => {
-    mockedRecoverAdmin.mockReturnValue({ ok: false });
+    mockedRecoverAdmin.mockResolvedValue({ ok: false });
     const result = await recoverAdminAction({
       recoveryCode: "bad-code",
       password: "a brand new password",

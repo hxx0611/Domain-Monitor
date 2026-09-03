@@ -74,7 +74,7 @@ function seed(db: NotificationDb): number {
     .values({
       type: "telegram",
       name: "tg",
-      config: JSON.stringify({ chatId: "1616146471" }),
+      config: JSON.stringify({ chatId: "100000001" }),
       enabled: 1,
     })
     .returning({ id: notificationChannels.id })

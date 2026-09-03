@@ -13,18 +13,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@/lib/domains", () => ({ getDomainById: vi.fn() }));
 vi.mock("@/lib/auth/admin", () => ({ requireAdmin: vi.fn() }));
-vi.mock("@/lib/notifications/repository", () => ({
-  getChannel: vi.fn(),
-  createChannel: vi.fn(),
-  updateChannel: vi.fn(),
-  setChannelEnabled: vi.fn(),
-  deleteChannel: vi.fn(),
-}));
-vi.mock("@/lib/notifications/secrets", () => ({
-  hasChannelSecret: vi.fn(),
-  setChannelSecret: vi.fn(),
+vi.mock("@/lib/runtime/repository", () => ({
+  getRepository: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
@@ -34,20 +25,19 @@ import {
   getChannelSecretStatusAction,
 } from "./actions";
 import { requireAdmin } from "@/lib/auth/admin";
-import * as repository from "@/lib/notifications/repository";
-import * as secrets from "@/lib/notifications/secrets";
+import { getRepository } from "@/lib/runtime/repository";
 
 const mRepo = {
-  getChannel: vi.mocked(repository.getChannel),
-  createChannel: vi.mocked(repository.createChannel),
-  updateChannel: vi.mocked(repository.updateChannel),
-  setChannelEnabled: vi.mocked(repository.setChannelEnabled),
-  deleteChannel: vi.mocked(repository.deleteChannel),
+  getChannel: vi.fn(),
+  createChannel: vi.fn(),
+  updateChannel: vi.fn(),
+  setChannelEnabled: vi.fn(),
+  deleteChannel: vi.fn(),
+  hasChannelSecret: vi.fn(),
+  setChannelSecret: vi.fn(),
+  getChannelSecret: vi.fn(),
 };
-const mSecrets = {
-  hasChannelSecret: vi.mocked(secrets.hasChannelSecret),
-  setChannelSecret: vi.mocked(secrets.setChannelSecret),
-};
+const mockedGetRepository = vi.mocked(getRepository);
 const mockedRequireAdmin = vi.mocked(requireAdmin);
 const mockedRevalidatePath = vi.mocked(revalidatePath);
 
@@ -60,7 +50,7 @@ function telegramChannel(overrides: Record<string, unknown> = {}) {
     id: 7,
     type: "telegram",
     name: "tg",
-    config: JSON.stringify({ chatId: "1616146471" }),
+    config: JSON.stringify({ chatId: "100000001" }),
     enabled: 1,
     createdAt: new Date("2026-08-17T00:00:00.000Z"),
     ...overrides,
@@ -69,7 +59,7 @@ function telegramChannel(overrides: Record<string, unknown> = {}) {
 
 function legacyTelegramChannel() {
   return telegramChannel({
-    config: JSON.stringify({ chatId: "1616146471", secretRef: "TELEGRAM_BOT_TOKEN" }),
+    config: JSON.stringify({ chatId: "100000001", secretRef: "TELEGRAM_BOT_TOKEN" }),
   });
 }
 
@@ -95,6 +85,7 @@ function jsonResponse(status: number, body: unknown): Response {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedGetRepository.mockResolvedValue(mRepo as never);
   vi.unstubAllGlobals();
   mockedRequireAdmin.mockResolvedValue(true);
   mockedRevalidatePath.mockImplementation(() => undefined);
@@ -128,7 +119,7 @@ describe("verifyTelegramTokenAction", () => {
     await verifyTelegramTokenAction({ token: FAKE_TOKEN });
     expect(mRepo.createChannel).not.toHaveBeenCalled();
     expect(mRepo.updateChannel).not.toHaveBeenCalled();
-    expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
+    expect(mRepo.setChannelSecret).not.toHaveBeenCalled();
   });
 
   it("unauthorized → unauthorized, no fetch", async () => {
@@ -143,12 +134,12 @@ describe("verifyTelegramTokenAction", () => {
 describe("saveTelegramChannelAction", () => {
   it("create: getMe success → channel saved with non-secret config + encrypted secret", async () => {
     stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
-    mRepo.createChannel.mockReturnValue(42);
+    mRepo.createChannel.mockResolvedValue(42);
 
     const result = await saveTelegramChannelAction({
       channelId: null,
       name: "My Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
     });
@@ -157,24 +148,24 @@ describe("saveTelegramChannelAction", () => {
     expect(mRepo.createChannel).toHaveBeenCalledWith(
       "telegram",
       "My Bot",
-      JSON.stringify({ chatId: "1616146471", language: "en", timezone: "UTC" }),
+      JSON.stringify({ chatId: "100000001", language: "en", timezone: "UTC" }),
     );
     // token lands in the encrypted secret store — never in the config.
     const configArg = mRepo.createChannel.mock.calls[0][2];
     expect(configArg).not.toContain(FAKE_TOKEN);
     expect(configArg).not.toContain("secretRef");
-    expect(mSecrets.setChannelSecret).toHaveBeenCalledWith(42, "token", FAKE_TOKEN);
+    expect(mRepo.setChannelSecret).toHaveBeenCalledWith(42, "token", FAKE_TOKEN);
     expect(mRepo.setChannelEnabled).not.toHaveBeenCalled(); // enabled default true
   });
 
   it("create with language=zh-CN persists language in config (11I)", async () => {
     stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
-    mRepo.createChannel.mockReturnValue(43);
+    mRepo.createChannel.mockResolvedValue(43);
 
     const result = await saveTelegramChannelAction({
       channelId: null,
       name: "My Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
       language: "zh-CN",
@@ -184,18 +175,18 @@ describe("saveTelegramChannelAction", () => {
     expect(mRepo.createChannel).toHaveBeenCalledWith(
       "telegram",
       "My Bot",
-      JSON.stringify({ chatId: "1616146471", language: "zh-CN", timezone: "UTC" }),
+      JSON.stringify({ chatId: "100000001", language: "zh-CN", timezone: "UTC" }),
     );
   });
 
   it("create with timezone=Asia/Shanghai persists timezone in config (11J)", async () => {
     stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
-    mRepo.createChannel.mockReturnValue(44);
+    mRepo.createChannel.mockResolvedValue(44);
 
     const result = await saveTelegramChannelAction({
       channelId: null,
       name: "My Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
       timezone: "Asia/Shanghai",
@@ -205,7 +196,7 @@ describe("saveTelegramChannelAction", () => {
     expect(mRepo.createChannel).toHaveBeenCalledWith(
       "telegram",
       "My Bot",
-      JSON.stringify({ chatId: "1616146471", language: "en", timezone: "Asia/Shanghai" }),
+      JSON.stringify({ chatId: "100000001", language: "en", timezone: "Asia/Shanghai" }),
     );
   });
 
@@ -214,7 +205,7 @@ describe("saveTelegramChannelAction", () => {
     const result = await saveTelegramChannelAction({
       channelId: null,
       name: "My Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
       timezone: "Mars/Olympus",
@@ -228,7 +219,7 @@ describe("saveTelegramChannelAction", () => {
     const result = await saveTelegramChannelAction({
       channelId: null,
       name: "My Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
       language: "fr",
@@ -239,11 +230,11 @@ describe("saveTelegramChannelAction", () => {
 
   it("create with enabled=false disables the channel", async () => {
     stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
-    mRepo.createChannel.mockReturnValue(42);
+    mRepo.createChannel.mockResolvedValue(42);
     await saveTelegramChannelAction({
       channelId: null,
       name: "Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: false,
     });
@@ -255,13 +246,13 @@ describe("saveTelegramChannelAction", () => {
     const result = await saveTelegramChannelAction({
       channelId: null,
       name: "Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: "",
       enabled: true,
     });
     expect(result).toEqual({ ok: false, error: "token_required" });
     expect(mRepo.createChannel).not.toHaveBeenCalled();
-    expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
+    expect(mRepo.setChannelSecret).not.toHaveBeenCalled();
     expect(calls).toHaveLength(0);
   });
 
@@ -270,24 +261,24 @@ describe("saveTelegramChannelAction", () => {
     const result = await saveTelegramChannelAction({
       channelId: null,
       name: "Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
     });
     expect(result).toEqual({ ok: false, error: "telegram_rejected" });
     expect(mRepo.createChannel).not.toHaveBeenCalled();
     expect(mRepo.updateChannel).not.toHaveBeenCalled();
-    expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
+    expect(mRepo.setChannelSecret).not.toHaveBeenCalled();
   });
 
   it("edit with blank token keeps the existing secret", async () => {
-    mRepo.getChannel.mockReturnValue(telegramChannel());
-    mSecrets.hasChannelSecret.mockReturnValue(true);
+    mRepo.getChannel.mockResolvedValue(telegramChannel());
+    mRepo.hasChannelSecret.mockResolvedValue(true);
 
     const result = await saveTelegramChannelAction({
       channelId: 7,
       name: "Renamed",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: "",
       enabled: true,
     });
@@ -295,35 +286,35 @@ describe("saveTelegramChannelAction", () => {
     expect(result).toEqual({ ok: true });
     expect(mRepo.updateChannel).toHaveBeenCalledWith(7, {
       name: "Renamed",
-      config: JSON.stringify({ chatId: "1616146471", language: "en", timezone: "UTC" }),
+      config: JSON.stringify({ chatId: "100000001", language: "en", timezone: "UTC" }),
     });
-    expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
+    expect(mRepo.setChannelSecret).not.toHaveBeenCalled();
   });
 
   it("edit with blank token and no secret/legacy → token_required", async () => {
-    mRepo.getChannel.mockReturnValue(telegramChannel());
-    mSecrets.hasChannelSecret.mockReturnValue(false);
+    mRepo.getChannel.mockResolvedValue(telegramChannel());
+    mRepo.hasChannelSecret.mockResolvedValue(false);
 
     const result = await saveTelegramChannelAction({
       channelId: 7,
       name: "Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: "",
       enabled: true,
     });
     expect(result).toEqual({ ok: false, error: "token_required" });
     expect(mRepo.updateChannel).not.toHaveBeenCalled();
-    expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
+    expect(mRepo.setChannelSecret).not.toHaveBeenCalled();
   });
 
   it("edit legacy channel (secretRef) with blank token stays valid (ref preserved)", async () => {
-    mRepo.getChannel.mockReturnValue(legacyTelegramChannel());
-    mSecrets.hasChannelSecret.mockReturnValue(false);
+    mRepo.getChannel.mockResolvedValue(legacyTelegramChannel());
+    mRepo.hasChannelSecret.mockResolvedValue(false);
 
     const result = await saveTelegramChannelAction({
       channelId: 7,
       name: "Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: "",
       enabled: true,
     });
@@ -332,29 +323,29 @@ describe("saveTelegramChannelAction", () => {
     expect(mRepo.updateChannel).toHaveBeenCalledWith(7, {
       name: "Bot",
       config: JSON.stringify({
-        chatId: "1616146471",
+        chatId: "100000001",
         secretRef: "TELEGRAM_BOT_TOKEN",
         language: "en",
         timezone: "UTC",
       }),
     });
-    expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
+    expect(mRepo.setChannelSecret).not.toHaveBeenCalled();
   });
 
   it("edit with new token replaces the encrypted secret", async () => {
-    mRepo.getChannel.mockReturnValue(telegramChannel({ enabled: 0 }));
+    mRepo.getChannel.mockResolvedValue(telegramChannel({ enabled: 0 }));
     stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
 
     const result = await saveTelegramChannelAction({
       channelId: 7,
       name: "Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
     });
 
     expect(result).toEqual({ ok: true });
-    expect(mSecrets.setChannelSecret).toHaveBeenCalledWith(7, "token", FAKE_TOKEN);
+    expect(mRepo.setChannelSecret).toHaveBeenCalledWith(7, "token", FAKE_TOKEN);
     expect(mRepo.setChannelEnabled).toHaveBeenCalledWith(7, true);
     // config never carries the token
     const configArg = mRepo.updateChannel.mock.calls[0][1].config;
@@ -362,7 +353,7 @@ describe("saveTelegramChannelAction", () => {
   });
 
   it("edit non-telegram channel → invalid_channel_type", async () => {
-    mRepo.getChannel.mockReturnValue({
+    mRepo.getChannel.mockResolvedValue({
       id: 7,
       type: "email",
       name: "mail",
@@ -373,7 +364,7 @@ describe("saveTelegramChannelAction", () => {
     const result = await saveTelegramChannelAction({
       channelId: 7,
       name: "Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
     });
@@ -386,23 +377,23 @@ describe("saveTelegramChannelAction", () => {
     const result = await saveTelegramChannelAction({
       channelId: null,
       name: "Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
     });
     expect(result).toEqual({ ok: false, error: "unauthorized" });
     expect(mRepo.createChannel).not.toHaveBeenCalled();
-    expect(mSecrets.setChannelSecret).not.toHaveBeenCalled();
+    expect(mRepo.setChannelSecret).not.toHaveBeenCalled();
     expect(calls).toHaveLength(0);
   });
 
   it("only getMe is ever called — sendMessage count = 0", async () => {
     const calls = stubGetMe(() => jsonResponse(200, { ok: true, result: FAKE_BOT }));
-    mRepo.createChannel.mockReturnValue(42);
+    mRepo.createChannel.mockResolvedValue(42);
     await saveTelegramChannelAction({
       channelId: null,
       name: "Bot",
-      chatId: "1616146471",
+      chatId: "100000001",
       token: FAKE_TOKEN,
       enabled: true,
     });
@@ -414,8 +405,8 @@ describe("saveTelegramChannelAction", () => {
 
 describe("getChannelSecretStatusAction", () => {
   it("returns boolean only — never ciphertext/ref", async () => {
-    mRepo.getChannel.mockReturnValue(telegramChannel());
-    mSecrets.hasChannelSecret.mockReturnValue(true);
+    mRepo.getChannel.mockResolvedValue(telegramChannel());
+    mRepo.hasChannelSecret.mockResolvedValue(true);
     const result = await getChannelSecretStatusAction({ channelId: 7 });
     expect(result).toEqual({ ok: true, hasToken: true });
     expect(JSON.stringify(result)).not.toContain("token:");
@@ -423,8 +414,8 @@ describe("getChannelSecretStatusAction", () => {
   });
 
   it("hasToken=false when no secret", async () => {
-    mRepo.getChannel.mockReturnValue(telegramChannel());
-    mSecrets.hasChannelSecret.mockReturnValue(false);
+    mRepo.getChannel.mockResolvedValue(telegramChannel());
+    mRepo.hasChannelSecret.mockResolvedValue(false);
     const result = await getChannelSecretStatusAction({ channelId: 7 });
     expect(result).toEqual({ ok: true, hasToken: false });
   });
@@ -436,7 +427,7 @@ describe("getChannelSecretStatusAction", () => {
   });
 
   it("missing channel → channel_not_found", async () => {
-    mRepo.getChannel.mockReturnValue(undefined);
+    mRepo.getChannel.mockResolvedValue(undefined);
     const result = await getChannelSecretStatusAction({ channelId: 7 });
     expect(result).toEqual({ ok: false, error: "channel_not_found" });
   });

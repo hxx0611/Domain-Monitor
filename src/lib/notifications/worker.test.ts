@@ -18,6 +18,7 @@ import {
   notificationEvents,
   notificationRules,
 } from "@/db/schema";
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
 import { createTestDb } from "../../../test/helpers";
 import { runOnce } from "./worker";
 import { getDelivery, retryDelivery, type NotificationDb } from "./repository";
@@ -125,7 +126,7 @@ describe("worker runOnce", () => {
   it("empty queue: zero summary, no errors", async () => {
     const db = createTestDb();
     db.insert(domains).values({ id: 5, hostname: "example.com" }).run();
-    const result = await runOnce({ db, now: NOW });
+    const result = await runOnce({ repo: createSQLiteRepository(db), now: NOW });
     expect(result).toEqual({
       expirationEvents: 0,
       recovered: 0,
@@ -144,7 +145,11 @@ describe("worker runOnce", () => {
     const deliveryId = insertPendingDelivery(db, eventId, channelIds[0]);
 
     const sender = new RecordingSender("webhook", "ok");
-    const result = await runOnce({ db, now: NOW, senders: () => sender });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      now: NOW,
+      senders: () => sender,
+    });
 
     expect(result).toEqual({
       expirationEvents: 0,
@@ -170,7 +175,11 @@ describe("worker runOnce", () => {
     const deliveryId = insertPendingDelivery(db, eventId, channelIds[0]);
 
     const sender = new RecordingSender("webhook", "fail");
-    const result = await runOnce({ db, now: NOW, senders: () => sender });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      now: NOW,
+      senders: () => sender,
+    });
 
     expect(result).toEqual({
       expirationEvents: 0,
@@ -200,7 +209,12 @@ describe("worker runOnce", () => {
     );
     const ids = channelIds.map((channelId) => insertPendingDelivery(db, eventId, channelId));
 
-    const result = await runOnce({ db, now: NOW, limit: 3, senders: okSenders });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      now: NOW,
+      limit: 3,
+      senders: okSenders,
+    });
 
     expect(result).toEqual({
       expirationEvents: 0,
@@ -231,7 +245,7 @@ describe("worker runOnce", () => {
     const ids = channelIds.map((channelId) => insertPendingDelivery(db, eventId, channelId));
 
     const sender = new RecordingSender("webhook", "ok");
-    await runOnce({ db, now: NOW, senders: () => sender });
+    await runOnce({ repo: createSQLiteRepository(db), now: NOW, senders: () => sender });
 
     expect(sender.calls.map((c) => c.deliveryId)).toEqual(ids);
   });
@@ -246,7 +260,11 @@ describe("worker runOnce", () => {
     setClaimedAt(db, deliveryId, new Date(NOW.getTime() - 10 * 60_000));
 
     const sender = new RecordingSender("webhook", "ok");
-    const result = await runOnce({ db, now: NOW, senders: () => sender });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      now: NOW,
+      senders: () => sender,
+    });
 
     expect(result.recovered).toBe(1);
     expect(result.sent).toBe(1);
@@ -267,7 +285,11 @@ describe("worker runOnce", () => {
     setClaimedAt(db, deliveryId, new Date(NOW.getTime() - 10_000));
 
     const sender = new RecordingSender("webhook", "ok");
-    const result = await runOnce({ db, now: NOW, senders: () => sender });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      now: NOW,
+      senders: () => sender,
+    });
 
     expect(result.recovered).toBe(0);
     expect(result.attempted).toBe(0);
@@ -288,7 +310,7 @@ describe("worker runOnce", () => {
 
     let call = 0;
     const result = await runOnce({
-      db,
+      repo: createSQLiteRepository(db),
       now: NOW,
       senders: () => new RecordingSender("webhook", ++call === 1 ? "fail" : "ok"),
     });
@@ -315,8 +337,8 @@ describe("worker runOnce", () => {
     const senderA = new RecordingSender("webhook", "ok");
     const senderB = new RecordingSender("webhook", "ok");
     const [resultA, resultB] = await Promise.all([
-      runOnce({ db, now: NOW, senders: () => senderA }),
-      runOnce({ db, now: NOW, senders: () => senderB }),
+      runOnce({ repo: createSQLiteRepository(db), now: NOW, senders: () => senderA }),
+      runOnce({ repo: createSQLiteRepository(db), now: NOW, senders: () => senderB }),
     ]);
 
     // better-sqlite3 is synchronous: within one process the two ticks
@@ -340,7 +362,11 @@ describe("worker runOnce", () => {
     const deliveryId = insertPendingDelivery(db, eventId, channelIds[0]);
 
     // First tick: fail.
-    await runOnce({ db, now: NOW, senders: () => new RecordingSender("webhook", "fail") });
+    await runOnce({
+      repo: createSQLiteRepository(db),
+      now: NOW,
+      senders: () => new RecordingSender("webhook", "fail"),
+    });
     expect(getDelivery(deliveryId, db)!.status).toBe("failed");
     expect(getDelivery(deliveryId, db)!.attempts).toBe(1);
 
@@ -348,7 +374,11 @@ describe("worker runOnce", () => {
     expect(retryDelivery(deliveryId, db)).toBe(true);
 
     // Second tick: succeed. Same delivery row, attempts incremented.
-    const result = await runOnce({ db, now: NOW, senders: okSenders });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      now: NOW,
+      senders: okSenders,
+    });
     expect(result.sent).toBe(1);
     const row = getDelivery(deliveryId, db)!;
     expect(row.status).toBe("sent");
@@ -363,8 +393,8 @@ describe("worker runOnce", () => {
     ]);
     insertPendingDelivery(db, eventId, channelIds[0]);
 
-    await runOnce({ db, now: NOW, senders: okSenders });
-    await runOnce({ db, now: NOW, senders: okSenders });
+    await runOnce({ repo: createSQLiteRepository(db), now: NOW, senders: okSenders });
+    await runOnce({ repo: createSQLiteRepository(db), now: NOW, senders: okSenders });
 
     const events = db.select().from(notificationEvents).all();
     expect(events).toHaveLength(1);
@@ -388,7 +418,7 @@ describe("worker runOnce", () => {
     );
 
     const result = await runOnce({
-      db,
+      repo: createSQLiteRepository(db),
       now: NOW,
       senders: () =>
         new EmailSender({
@@ -423,7 +453,7 @@ describe("worker runOnce", () => {
 
     // env WITHOUT the key → sender throws invalid-config before any request.
     const result = await runOnce({
-      db,
+      repo: createSQLiteRepository(db),
       now: NOW,
       senders: () => new EmailSender({ env: {} }),
     });

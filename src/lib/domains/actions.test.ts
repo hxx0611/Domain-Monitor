@@ -23,13 +23,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth/admin", () => ({ requireAdmin: vi.fn() }));
 vi.mock("@/lib/rdap", () => ({ queryRdapWithFallback: vi.fn() }));
-vi.mock("./repository", () => ({
-  createDomain: vi.fn(),
-  deleteDomain: vi.fn(),
-  getDomainById: vi.fn(),
-  setExpirationReminders: vi.fn(),
-  updateDomain: vi.fn(),
-  updateDomainRdap: vi.fn(),
+vi.mock("@/lib/runtime/repository", () => ({
+  getRepository: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
@@ -41,16 +36,17 @@ import {
 } from "./actions";
 import { requireAdmin } from "@/lib/auth/admin";
 import { queryRdapWithFallback } from "@/lib/rdap";
-import * as repository from "./repository";
+import { getRepository } from "@/lib/runtime/repository";
 
 const mRepo = {
-  createDomain: vi.mocked(repository.createDomain),
-  deleteDomain: vi.mocked(repository.deleteDomain),
-  getDomainById: vi.mocked(repository.getDomainById),
-  setExpirationReminders: vi.mocked(repository.setExpirationReminders),
-  updateDomain: vi.mocked(repository.updateDomain),
-  updateDomainRdap: vi.mocked(repository.updateDomainRdap),
+  createDomain: vi.fn(),
+  deleteDomain: vi.fn(),
+  getDomainById: vi.fn(),
+  setExpirationReminders: vi.fn(),
+  updateDomain: vi.fn(),
+  updateDomainRdap: vi.fn(),
 };
+const mockedGetRepository = vi.mocked(getRepository);
 const mockedQueryRdap = vi.mocked(queryRdapWithFallback);
 const mockedRequireAdmin = vi.mocked(requireAdmin);
 const mockedRevalidatePath = vi.mocked(revalidatePath);
@@ -95,6 +91,7 @@ function exactRdapResult() {
 
 beforeEach(() => {
   mockedRequireAdmin.mockResolvedValue(true);
+  mockedGetRepository.mockResolvedValue(mRepo as never);
   vi.clearAllMocks();
 });
 
@@ -185,7 +182,7 @@ describe("createDomainAction", () => {
   });
 
   it("creates an rdap domain, runs RDAP enrichment and revalidates", async () => {
-    mRepo.createDomain.mockReturnValue(domainRow() as never);
+    mRepo.createDomain.mockResolvedValue(domainRow() as never);
     mockedQueryRdap.mockResolvedValue(exactRdapResult());
 
     const result = await createDomainAction("example.com");
@@ -205,7 +202,7 @@ describe("createDomainAction", () => {
   });
 
   it("persists reminders when supplied", async () => {
-    mRepo.createDomain.mockReturnValue(domainRow() as never);
+    mRepo.createDomain.mockResolvedValue(domainRow() as never);
     mockedQueryRdap.mockResolvedValue(exactRdapResult());
 
     const result = await createDomainAction("example.com", {
@@ -218,7 +215,7 @@ describe("createDomainAction", () => {
   });
 
   it("skips the RDAP refresh entirely for a manual domain", async () => {
-    mRepo.createDomain.mockReturnValue(domainRow({ expirationSource: "manual" }) as never);
+    mRepo.createDomain.mockResolvedValue(domainRow({ expirationSource: "manual" }) as never);
 
     const result = await createDomainAction("example.com", {
       expirationSource: "manual",
@@ -242,7 +239,7 @@ describe("createDomainAction", () => {
 
   it("still creates the domain when the RDAP enrichment query fails", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mRepo.createDomain.mockReturnValue(domainRow() as never);
+    mRepo.createDomain.mockResolvedValue(domainRow() as never);
     mockedQueryRdap.mockRejectedValue(new Error("network down"));
 
     const result = await createDomainAction("example.com");
@@ -253,7 +250,7 @@ describe("createDomainAction", () => {
   });
 
   it("reports a duplicate hostname when the repository returns undefined", async () => {
-    mRepo.createDomain.mockReturnValue(undefined as never);
+    mRepo.createDomain.mockResolvedValue(undefined as never);
 
     const result = await createDomainAction("example.com");
 
@@ -283,7 +280,7 @@ describe("updateDomainAction", () => {
   });
 
   it("reports a missing domain before validating fields", async () => {
-    mRepo.getDomainById.mockReturnValue(undefined as never);
+    mRepo.getDomainById.mockResolvedValue(undefined as never);
 
     const result = await updateDomainAction(999, { expirationSource: "rdap" });
 
@@ -292,7 +289,7 @@ describe("updateDomainAction", () => {
   });
 
   it("rejects invalid fields without updating", async () => {
-    mRepo.getDomainById.mockReturnValue(domainRow() as never);
+    mRepo.getDomainById.mockResolvedValue(domainRow() as never);
 
     const result = await updateDomainAction(1, {
       expirationSource: "manual",
@@ -304,8 +301,8 @@ describe("updateDomainAction", () => {
   });
 
   it("updates the domain, replaces reminders and revalidates", async () => {
-    mRepo.getDomainById.mockReturnValue(domainRow() as never);
-    mRepo.updateDomain.mockReturnValue(true);
+    mRepo.getDomainById.mockResolvedValue(domainRow() as never);
+    mRepo.updateDomain.mockResolvedValue(true);
 
     const result = await updateDomainAction(1, {
       expirationSource: "manual",
@@ -328,8 +325,8 @@ describe("updateDomainAction", () => {
   });
 
   it("clears manual dates when switching manual → rdap", async () => {
-    mRepo.getDomainById.mockReturnValue(domainRow({ expirationSource: "manual" }) as never);
-    mRepo.updateDomain.mockReturnValue(true);
+    mRepo.getDomainById.mockResolvedValue(domainRow({ expirationSource: "manual" }) as never);
+    mRepo.updateDomain.mockResolvedValue(true);
 
     const result = await updateDomainAction(1, {
       expirationSource: "rdap",
@@ -360,7 +357,7 @@ describe("refreshRdapAction", () => {
   });
 
   it("reports a missing domain without querying RDAP", async () => {
-    mRepo.getDomainById.mockReturnValue(undefined as never);
+    mRepo.getDomainById.mockResolvedValue(undefined as never);
 
     const result = await refreshRdapAction(999);
 
@@ -369,7 +366,7 @@ describe("refreshRdapAction", () => {
   });
 
   it("forwards an exact ownership result to the repository", async () => {
-    mRepo.getDomainById.mockReturnValue(domainRow() as never);
+    mRepo.getDomainById.mockResolvedValue(domainRow() as never);
     mockedQueryRdap.mockResolvedValue(exactRdapResult());
 
     const result = await refreshRdapAction(1);
@@ -382,7 +379,7 @@ describe("refreshRdapAction", () => {
   });
 
   it("forwards a parent ownership result without dropping it", async () => {
-    mRepo.getDomainById.mockReturnValue(domainRow() as never);
+    mRepo.getDomainById.mockResolvedValue(domainRow() as never);
     mockedQueryRdap.mockResolvedValue({
       data: {
         domainName: "EU.CC",
@@ -408,7 +405,7 @@ describe("refreshRdapAction", () => {
   });
 
   it("forwards a no-object result (status empty, no dates) to the repository", async () => {
-    mRepo.getDomainById.mockReturnValue(domainRow() as never);
+    mRepo.getDomainById.mockResolvedValue(domainRow() as never);
     mockedQueryRdap.mockResolvedValue({
       data: {
         domainName: "NOPE.EXAMPLE",
@@ -436,7 +433,7 @@ describe("refreshRdapAction", () => {
   });
 
   it("still refreshes a manual domain (repository layer protects the dates)", async () => {
-    mRepo.getDomainById.mockReturnValue(domainRow({ expirationSource: "manual" }) as never);
+    mRepo.getDomainById.mockResolvedValue(domainRow({ expirationSource: "manual" }) as never);
     mockedQueryRdap.mockResolvedValue(exactRdapResult());
 
     const result = await refreshRdapAction(1);
@@ -450,7 +447,7 @@ describe("refreshRdapAction", () => {
 
   it("returns a user-safe error when the RDAP query fails", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mRepo.getDomainById.mockReturnValue(domainRow() as never);
+    mRepo.getDomainById.mockResolvedValue(domainRow() as never);
     mockedQueryRdap.mockRejectedValue(new Error("timeout"));
 
     const result = await refreshRdapAction(1);
@@ -476,7 +473,7 @@ describe("deleteDomainAction", () => {
   });
 
   it("reports a missing domain when nothing was deleted", async () => {
-    mRepo.deleteDomain.mockReturnValue(false);
+    mRepo.deleteDomain.mockResolvedValue(false);
 
     const result = await deleteDomainAction(999);
 
@@ -485,7 +482,7 @@ describe("deleteDomainAction", () => {
   });
 
   it("deletes the domain and revalidates", async () => {
-    mRepo.deleteDomain.mockReturnValue(true);
+    mRepo.deleteDomain.mockResolvedValue(true);
 
     const result = await deleteDomainAction(1);
 

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDb } from "../../../test/helpers";
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
+import type { Repository } from "@/db/repository";
 import type { AdminDb } from "./admin";
 import {
   getAdminRow,
@@ -40,6 +42,10 @@ vi.mock("next/navigation", () => ({
 
 const PASSWORD = "correct horse battery staple";
 
+function repoOf(db: AdminDb): Repository {
+  return createSQLiteRepository(db);
+}
+
 describe("setupAdmin", () => {
   let db: AdminDb;
 
@@ -47,41 +53,43 @@ describe("setupAdmin", () => {
     db = createTestDb();
   });
 
-  it("returns a 128-bit recovery code and configures login", () => {
-    const { recoveryCode } = setupAdmin(PASSWORD, db);
+  it("returns a 128-bit recovery code and configures login", async () => {
+    const { recoveryCode } = await setupAdmin(PASSWORD, repoOf(db));
     expect(recoveryCode).toMatch(/^[0-9a-f]{32}$/);
     expect(isAdminConfigured(db)).toBe(true);
-    expect(loginAdmin(PASSWORD, db)).toBe(true);
+    expect(await loginAdmin(PASSWORD, repoOf(db))).toBe(true);
   });
 
-  it("throws when called twice (first-run only)", () => {
-    setupAdmin(PASSWORD, db);
-    expect(() => setupAdmin("another password here", db)).toThrow(/already configured/);
+  it("throws when called twice (first-run only)", async () => {
+    await setupAdmin(PASSWORD, repoOf(db));
+    await expect(setupAdmin("another password here", repoOf(db))).rejects.toThrow(
+      /already configured/,
+    );
   });
 });
 
 describe("loginAdmin", () => {
   let db: AdminDb;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db = createTestDb();
-    setupAdmin(PASSWORD, db);
+    await setupAdmin(PASSWORD, repoOf(db));
   });
 
-  it("rejects a wrong password", () => {
-    expect(loginAdmin("wrong password", db)).toBe(false);
+  it("rejects a wrong password", async () => {
+    expect(await loginAdmin("wrong password", repoOf(db))).toBe(false);
   });
 
-  it("rejects empty input", () => {
-    expect(loginAdmin("", db)).toBe(false);
+  it("rejects empty input", async () => {
+    expect(await loginAdmin("", repoOf(db))).toBe(false);
   });
 });
 
 describe("loginAdmin on an unconfigured install", () => {
-  it("returns false (never reveals the account state)", () => {
+  it("returns false (never reveals the account state)", async () => {
     const db = createTestDb();
-    expect(loginAdmin(PASSWORD, db)).toBe(false);
-    expect(loginAdmin("", db)).toBe(false);
+    expect(await loginAdmin(PASSWORD, repoOf(db))).toBe(false);
+    expect(await loginAdmin("", repoOf(db))).toBe(false);
   });
 });
 
@@ -92,37 +100,47 @@ describe("recoverAdmin", () => {
     db = createTestDb();
   });
 
-  it("resets password, rotates the recovery code and the session secret", () => {
-    const { recoveryCode } = setupAdmin(PASSWORD, db);
+  it("resets password, rotates the recovery code and the session secret", async () => {
+    const { recoveryCode } = await setupAdmin(PASSWORD, repoOf(db));
     const secretBefore = getSessionSecret(db);
 
-    const result = recoverAdmin(recoveryCode, "a brand new password", db);
+    const result = await recoverAdmin(recoveryCode, "a brand new password", repoOf(db));
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
 
     // New password works, old one does not.
-    expect(loginAdmin("a brand new password", db)).toBe(true);
-    expect(loginAdmin(PASSWORD, db)).toBe(false);
+    expect(await loginAdmin("a brand new password", repoOf(db))).toBe(true);
+    expect(await loginAdmin(PASSWORD, repoOf(db))).toBe(false);
 
     // Old recovery code is consumed; the new one works.
-    expect(recoverAdmin(recoveryCode, "yet another password", db).ok).toBe(false);
-    expect(recoverAdmin(result.recoveryCode, "yet another password", db).ok).toBe(true);
+    expect((await recoverAdmin(recoveryCode, "yet another password", repoOf(db))).ok).toBe(false);
+    expect((await recoverAdmin(result.recoveryCode, "yet another password", repoOf(db))).ok).toBe(
+      true,
+    );
 
     // Session secret rotated → all old sessions invalid.
     expect(getSessionSecret(db)).not.toBe(secretBefore);
   });
 
-  it("returns ok:false for a wrong recovery code without changing anything", () => {
-    setupAdmin(PASSWORD, db);
-    const result = recoverAdmin("00000000000000000000000000000000", "a brand new password", db);
+  it("returns ok:false for a wrong recovery code without changing anything", async () => {
+    await setupAdmin(PASSWORD, repoOf(db));
+    const result = await recoverAdmin(
+      "00000000000000000000000000000000",
+      "a brand new password",
+      repoOf(db),
+    );
     expect(result).toEqual({ ok: false });
-    expect(loginAdmin(PASSWORD, db)).toBe(true);
+    expect(await loginAdmin(PASSWORD, repoOf(db))).toBe(true);
   });
 
-  it("returns ok:false on an unconfigured install", () => {
-    const result = recoverAdmin("00000000000000000000000000000000", "a brand new password", db);
+  it("returns ok:false on an unconfigured install", async () => {
+    const result = await recoverAdmin(
+      "00000000000000000000000000000000",
+      "a brand new password",
+      repoOf(db),
+    );
     expect(result).toEqual({ ok: false });
   });
 });
@@ -148,8 +166,8 @@ describe("getSessionSecret", () => {
     }
   });
 
-  it("falls back to the persisted DB secret after setup", () => {
-    setupAdmin(PASSWORD, db);
+  it("falls back to the persisted DB secret after setup", async () => {
+    await setupAdmin(PASSWORD, repoOf(db));
     expect(getSessionSecret(db)).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -186,26 +204,28 @@ describe("getEncryptionKey (reserved for 9F)", () => {
 
 describe("isAdminAuthenticated", () => {
   let db: AdminDb;
+  let repo: Repository;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     cookieStore.clear();
     db = createTestDb();
-    setupAdmin(PASSWORD, db);
+    repo = repoOf(db);
+    await setupAdmin(PASSWORD, repo);
   });
 
   it("returns false with no cookie", async () => {
-    expect(await isAdminAuthenticated()).toBe(false);
+    expect(await isAdminAuthenticated(repo)).toBe(false);
   });
 
   it("returns true with a valid signed session cookie", async () => {
     const secret = getSessionSecret(db);
     cookieStore.set("dm_admin_session", createSessionValue(secret));
-    expect(await isAdminAuthenticated(db)).toBe(true);
+    expect(await isAdminAuthenticated(repo)).toBe(true);
   });
 
   it("returns false with a tampered cookie", async () => {
     cookieStore.set("dm_admin_session", "1.invalid.entropy.signature");
-    expect(await isAdminAuthenticated(db)).toBe(false);
+    expect(await isAdminAuthenticated(repo)).toBe(false);
   });
 });
 
@@ -216,21 +236,21 @@ describe("requirePageAccess", () => {
 
   it("redirects to /setup when the install is unconfigured", async () => {
     const db = createTestDb();
-    await expect(requirePageAccess(db)).rejects.toThrow("NEXT_REDIRECT");
+    await expect(requirePageAccess(repoOf(db))).rejects.toThrow("NEXT_REDIRECT");
   });
 
   it("redirects to /login when unauthenticated", async () => {
     const db = createTestDb();
-    setupAdmin(PASSWORD, db);
-    await expect(requirePageAccess(db)).rejects.toThrow("NEXT_REDIRECT");
+    await setupAdmin(PASSWORD, repoOf(db));
+    await expect(requirePageAccess(repoOf(db))).rejects.toThrow("NEXT_REDIRECT");
   });
 
   it("passes through when configured and authenticated", async () => {
     const db = createTestDb();
-    setupAdmin(PASSWORD, db);
+    await setupAdmin(PASSWORD, repoOf(db));
     const secret = getSessionSecret(db);
     cookieStore.set("dm_admin_session", createSessionValue(secret));
-    await expect(requirePageAccess(db)).resolves.toBeUndefined();
+    await expect(requirePageAccess(repoOf(db))).resolves.toBeUndefined();
   });
 });
 

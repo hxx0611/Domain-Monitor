@@ -23,12 +23,9 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { schema } from "../src/db/schema";
+import { createSQLiteRepository } from "../src/db/adapters/sqlite";
+import type { Repository } from "../src/db/repository";
 import { runOnce } from "../src/lib/notifications/worker";
-import {
-  claimPendingDelivery,
-  getPendingDeliveries,
-  type NotificationDb,
-} from "../src/lib/notifications/repository";
 import type { DeliverySender } from "../src/lib/notifications/types";
 
 const MODE = process.env.DM_MODE ?? "normal";
@@ -37,7 +34,7 @@ const LIMIT = process.env.DM_LIMIT ? Number(process.env.DM_LIMIT) : undefined;
 const STALE_MS = process.env.DM_STALE_MS ? Number(process.env.DM_STALE_MS) : undefined;
 const FAIL_IDS = new Set((process.env.DM_FAIL_IDS ?? "").split(",").filter(Boolean).map(Number));
 
-function openDb(): { db: NotificationDb; sqlite: Database.Database } {
+function openRepo(): { repo: Repository; sqlite: Database.Database } {
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error("DATABASE_URL is required.");
@@ -45,7 +42,8 @@ function openDb(): { db: NotificationDb; sqlite: Database.Database } {
   const sqlite = new Database(url);
   sqlite.pragma("foreign_keys = ON");
   sqlite.pragma("busy_timeout = 5000");
-  return { db: drizzle(sqlite, { schema }), sqlite };
+  const db = drizzle(sqlite, { schema });
+  return { repo: createSQLiteRepository(db), sqlite };
 }
 
 /** Fake sender: POSTs delivery ids to the parent's local HTTP server. */
@@ -70,14 +68,14 @@ class LocalSender implements DeliverySender {
 }
 
 async function main(): Promise<void> {
-  const { db, sqlite } = openDb();
+  const { repo, sqlite } = openRepo();
   const proc = process.env.DM_PROC_ID ?? "worker";
 
   if (MODE === "crash-after-claim") {
     // Claim the first pending delivery, then die before send — leaving
     // status='sending' + claimedAt for a later worker to recover.
-    const pending = getPendingDeliveries(1, db);
-    const claimed = pending.length > 0 ? claimPendingDelivery(pending[0].id, db) : false;
+    const pending = await repo.getPendingDeliveries(1);
+    const claimed = pending.length > 0 ? await repo.claimPendingDelivery(pending[0].id) : false;
     console.log(JSON.stringify({ mode: "crash-after-claim", proc, claimed }));
     process.exit(1); // simulated crash (non-zero exit, no markSent/markFailed)
   }
@@ -96,7 +94,7 @@ async function main(): Promise<void> {
 
   const startedAt = Date.now();
   const result = await runOnce({
-    db,
+    repo,
     limit: LIMIT,
     staleAfterMs: STALE_MS,
     senders: () => new LocalSender(PORT),

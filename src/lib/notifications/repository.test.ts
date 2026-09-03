@@ -176,7 +176,7 @@ describe("channel CRUD (Phase 8B)", () => {
     const telegramId = createChannel(
       "telegram",
       "TG",
-      JSON.stringify({ chatId: "1616146471", secretRef: "TELEGRAM_BOT_TOKEN" }),
+      JSON.stringify({ chatId: "100000001", secretRef: "TELEGRAM_BOT_TOKEN" }),
       db,
     );
     expect([emailId, webhookId, telegramId]).toEqual([1, 2, 3]);

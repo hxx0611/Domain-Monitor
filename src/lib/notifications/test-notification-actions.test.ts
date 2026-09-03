@@ -15,47 +15,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@/lib/domains", () => ({ getDomainById: vi.fn(), getDomains: vi.fn() }));
-vi.mock("@/lib/domains/repository", () => ({ getDomainById: vi.fn() }));
 vi.mock("@/lib/auth/admin", () => ({ requireAdmin: vi.fn() }));
-vi.mock("@/lib/notifications/repository", () => ({
+vi.mock("@/lib/runtime/repository", () => ({
+  getRepository: vi.fn(),
+}));
+
+import { sendTestNotificationAction } from "./actions";
+import { requireAdmin } from "@/lib/auth/admin";
+import { getRepository } from "@/lib/runtime/repository";
+
+const mRepo = {
   getChannel: vi.fn(),
   getEvent: vi.fn(),
   insertNotificationEvents: vi.fn(),
   createDelivery: vi.fn(),
   getDelivery: vi.fn(),
+  getDomains: vi.fn(),
+  getDomainById: vi.fn(),
+  hasChannelSecret: vi.fn(),
+  getChannelSecret: vi.fn(),
   claimPendingDelivery: vi.fn(),
   markDeliverySent: vi.fn(),
   markDeliveryFailed: vi.fn(),
-}));
-vi.mock("@/lib/notifications/secrets", () => ({
-  hasChannelSecret: vi.fn(),
-  getChannelSecret: vi.fn(),
-}));
-
-import { sendTestNotificationAction } from "./actions";
-import { requireAdmin } from "@/lib/auth/admin";
-import * as repository from "@/lib/notifications/repository";
-import * as secrets from "@/lib/notifications/secrets";
-import * as domains from "@/lib/domains";
-
-const mRepo = {
-  getChannel: vi.mocked(repository.getChannel),
-  getEvent: vi.mocked(repository.getEvent),
-  insertNotificationEvents: vi.mocked(repository.insertNotificationEvents),
-  createDelivery: vi.mocked(repository.createDelivery),
-  getDelivery: vi.mocked(repository.getDelivery),
-  claimPendingDelivery: vi.mocked(repository.claimPendingDelivery),
-  markDeliverySent: vi.mocked(repository.markDeliverySent),
-  markDeliveryFailed: vi.mocked(repository.markDeliveryFailed),
 };
-const mSecrets = {
-  hasChannelSecret: vi.mocked(secrets.hasChannelSecret),
-  getChannelSecret: vi.mocked(secrets.getChannelSecret),
-};
-const mDomains = {
-  getDomains: vi.mocked(domains.getDomains),
-};
+const mockedGetRepository = vi.mocked(getRepository);
 const mockedRequireAdmin = vi.mocked(requireAdmin);
 
 // Format-valid fake token — NEVER a real Telegram token.
@@ -67,7 +50,7 @@ function telegramChannel(overrides: Record<string, unknown> = {}) {
     id: 7,
     type: "telegram",
     name: "tg",
-    config: JSON.stringify({ chatId: "1616146471" }),
+    config: JSON.stringify({ chatId: "100000001" }),
     enabled: 1,
     createdAt: new Date("2026-08-19T00:00:00.000Z"),
     ...overrides,
@@ -102,22 +85,23 @@ function stubTelegramFetch(response: () => unknown, calls: string[] = []) {
 }
 
 function happyPath() {
-  mRepo.getChannel.mockReturnValue(telegramChannel() as never);
-  mRepo.getEvent.mockReturnValue(eventRow() as never);
-  mRepo.insertNotificationEvents.mockReturnValue([42]);
-  mRepo.createDelivery.mockReturnValue(77);
-  mRepo.getDelivery.mockReturnValue({ channelId: 7 } as never);
-  mRepo.claimPendingDelivery.mockReturnValue(true);
-  mRepo.markDeliverySent.mockReturnValue(true);
-  mRepo.markDeliveryFailed.mockReturnValue(true);
-  mSecrets.hasChannelSecret.mockReturnValue(true);
-  mSecrets.getChannelSecret.mockResolvedValue(FAKE_TOKEN);
-  mDomains.getDomains.mockReturnValue([{ id: 5, hostname: "example.com" }] as never);
+  mRepo.getChannel.mockResolvedValue(telegramChannel() as never);
+  mRepo.getEvent.mockResolvedValue(eventRow() as never);
+  mRepo.insertNotificationEvents.mockResolvedValue([42]);
+  mRepo.createDelivery.mockResolvedValue(77);
+  mRepo.getDelivery.mockResolvedValue({ channelId: 7 } as never);
+  mRepo.claimPendingDelivery.mockResolvedValue(true);
+  mRepo.markDeliverySent.mockResolvedValue(true);
+  mRepo.markDeliveryFailed.mockResolvedValue(true);
+  mRepo.hasChannelSecret.mockResolvedValue(true);
+  mRepo.getChannelSecret.mockResolvedValue(FAKE_TOKEN);
+  mRepo.getDomains.mockResolvedValue([{ id: 5, hostname: "example.com" }] as never);
   mockedRequireAdmin.mockResolvedValue(true);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedGetRepository.mockResolvedValue(mRepo as never);
   happyPath();
 });
 
@@ -138,7 +122,7 @@ describe("sendTestNotificationAction — authorization", () => {
 
 describe("sendTestNotificationAction — channel validation", () => {
   it("B: missing channel → channel_not_found", async () => {
-    mRepo.getChannel.mockReturnValue(undefined);
+    mRepo.getChannel.mockResolvedValue(undefined);
     const result = await sendTestNotificationAction(7);
     expect(result).toEqual({
       ok: false,
@@ -148,13 +132,13 @@ describe("sendTestNotificationAction — channel validation", () => {
   });
 
   it("C: disabled channel → channel_disabled", async () => {
-    mRepo.getChannel.mockReturnValue(telegramChannel({ enabled: 0 }) as never);
+    mRepo.getChannel.mockResolvedValue(telegramChannel({ enabled: 0 }) as never);
     const result = await sendTestNotificationAction(7);
     expect(result).toEqual({ ok: false, error: "Channel is disabled.", code: "channel_disabled" });
   });
 
   it("D: non-Telegram channel → unsupported_channel", async () => {
-    mRepo.getChannel.mockReturnValue(
+    mRepo.getChannel.mockResolvedValue(
       telegramChannel({ type: "email", config: JSON.stringify({ to: "a@b.c" }) }) as never,
     );
     const result = await sendTestNotificationAction(7);
@@ -166,7 +150,7 @@ describe("sendTestNotificationAction — channel validation", () => {
   });
 
   it("E: Telegram channel without configured secret → secret_not_configured", async () => {
-    mSecrets.hasChannelSecret.mockReturnValue(false);
+    mRepo.hasChannelSecret.mockResolvedValue(false);
     const result = await sendTestNotificationAction(7);
     expect(result).toEqual({
       ok: false,
@@ -191,7 +175,7 @@ describe("sendTestNotificationAction — happy path through existing pipeline", 
     expect(fetchCalls[0]).toMatch(/^https:\/\/api\.telegram\.org\/bot/);
     expect(fetchCalls[0]).toContain("/sendMessage");
     // The factory resolver (getChannelSecret) supplied the token to the sender.
-    expect(mSecrets.getChannelSecret).toHaveBeenCalledWith(7, "token");
+    expect(mRepo.getChannelSecret).toHaveBeenCalledWith(7, "token");
     expect(mRepo.markDeliverySent).toHaveBeenCalledTimes(1);
     expect(mRepo.markDeliveryFailed).not.toHaveBeenCalled();
   });
@@ -234,12 +218,12 @@ describe("sendTestNotificationAction — happy path through existing pipeline", 
     const fetchCalls: string[] = [];
     stubTelegramFetch(() => FAKE_BOT, fetchCalls);
 
-    mRepo.insertNotificationEvents.mockReturnValueOnce([42]);
+    mRepo.insertNotificationEvents.mockResolvedValueOnce([42]);
     const first = await sendTestNotificationAction(7);
     expect(first.ok).toBe(true);
 
     // Replay of the same invocation: the UNIQUE dedupKey absorbs it.
-    mRepo.insertNotificationEvents.mockReturnValueOnce([null]);
+    mRepo.insertNotificationEvents.mockResolvedValueOnce([null]);
     const second = await sendTestNotificationAction(7);
     expect(second).toEqual({
       ok: false,
@@ -253,7 +237,7 @@ describe("sendTestNotificationAction — happy path through existing pipeline", 
   });
 
   it("no domain available → no_domain, nothing is sent", async () => {
-    mDomains.getDomains.mockReturnValue([]);
+    mRepo.getDomains.mockResolvedValue([]);
     const result = await sendTestNotificationAction(7);
     expect(result).toEqual({
       ok: false,

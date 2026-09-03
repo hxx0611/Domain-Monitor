@@ -15,6 +15,7 @@
  *   - token NEVER lands in SQLite, delivery.error, or error messages
  */
 
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
 import { beforeAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import {
@@ -158,7 +159,10 @@ describe("Phase 9H E2E — real chain", () => {
       });
     }) as unknown as typeof fetch;
 
-    const result = await runOnce({ db, senders: senderFactory(fetchFn) });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      senders: senderFactory(fetchFn),
+    });
     expect(result.sent).toBe(1);
     expect(result.failed).toBe(0);
     expect(fetchCalls).toBe(1);
@@ -191,7 +195,10 @@ describe("Phase 9H E2E — real chain", () => {
       });
     }) as unknown as typeof fetch;
 
-    const result = await runOnce({ db, senders: senderFactory(fetchFn) });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      senders: senderFactory(fetchFn),
+    });
     expect(result.sent).toBe(1);
     expect(fetchCalls).toBe(1);
     const row = db
@@ -208,7 +215,10 @@ describe("Phase 9H E2E — real chain", () => {
     // No secret row, no secretRef, env has no TELEGRAM_BOT_TOKEN for this
     // factory? It DOES — the factory env includes ENV_TOKEN, but a 9G+
     // config without secretRef must NOT resolve env directly.
-    const result = await runOnce({ db, senders: senderFactory(rejectFetch()) });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      senders: senderFactory(rejectFetch()),
+    });
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(1);
     expect(fetchCalls).toBe(0); // never reached the network
@@ -236,7 +246,10 @@ describe("Phase 9H E2E — real chain", () => {
       "ffeeddccbbaa99887766554433221100fedcba9876543210fedcba9876543210",
     );
 
-    const result = await runOnce({ db, senders: senderFactory(rejectFetch()) });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      senders: senderFactory(rejectFetch()),
+    });
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(1);
     expect(fetchCalls).toBe(0); // decryption failure is not masked by env fallback
@@ -259,7 +272,10 @@ describe("Phase 9H E2E — real chain", () => {
     const channelId = db.select().from(notificationChannels).all()[0].id;
     setChannelSecret(channelId, "token", STORAGE_TOKEN, db);
 
-    const result = await runOnce({ db, senders: senderFactory(rejectFetch()) });
+    const result = await runOnce({
+      repo: createSQLiteRepository(db),
+      senders: senderFactory(rejectFetch()),
+    });
     expect(result.failed).toBe(1);
     expect(fetchCalls).toBe(1);
 

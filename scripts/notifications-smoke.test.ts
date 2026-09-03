@@ -33,6 +33,7 @@ import {
   notificationEvents,
   notificationRules,
 } from "../src/db/schema";
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
 import { createTestDb } from "../test/helpers";
 import { deliverDelivery, generateDeliveries } from "../src/lib/notifications/service";
 import {
@@ -174,7 +175,7 @@ describe("Phase 5C smoke — real chain against a local HTTP server", () => {
     expect(getDelivery(deliveryId, db)!.status).toBe("pending");
 
     const sender = new WebhookSender({ fetchFn: localFetch, lookup: publicLookup() });
-    const result = await deliverDelivery(deliveryId, EVENT, sender, { db });
+    const result = await deliverDelivery(deliveryId, EVENT, sender, { repo: createSQLiteRepository(db) });
 
     expect(result).toEqual({ status: "sent" });
     const delivery = getDelivery(deliveryId, db)!;
@@ -199,7 +200,7 @@ describe("Phase 5C smoke — real chain against a local HTTP server", () => {
     const deliveryId = getDelivery(created[0], db)!.id;
 
     const sender = new WebhookSender({ fetchFn: localFetch, lookup: publicLookup() });
-    const result = await deliverDelivery(deliveryId, EVENT, sender, { db });
+    const result = await deliverDelivery(deliveryId, EVENT, sender, { repo: createSQLiteRepository(db) });
 
     expect(result.status).toBe("failed");
     const delivery = getDelivery(deliveryId, db)!;
@@ -226,7 +227,7 @@ describe("Phase 5C smoke — real chain against a local HTTP server", () => {
       lookup: publicLookup(),
       env: { EMAIL_API_KEY: EMAIL_KEY },
     });
-    const result = await deliverDelivery(deliveryId, EVENT, sender, { db });
+    const result = await deliverDelivery(deliveryId, EVENT, sender, { repo: createSQLiteRepository(db) });
 
     expect(result).toEqual({ status: "sent" });
     expect(getDelivery(deliveryId, db)!.status).toBe("sent");
@@ -260,7 +261,7 @@ describe("Phase 5C smoke — real chain against a local HTTP server", () => {
       lookup,
       env: { EMAIL_API_KEY: EMAIL_KEY },
     });
-    const result = await deliverDelivery(deliveryId, EVENT, sender, { db });
+    const result = await deliverDelivery(deliveryId, EVENT, sender, { repo: createSQLiteRepository(db) });
 
     expect(result).toEqual({ status: "sent" });
     expect(requests).toHaveLength(2);
@@ -291,7 +292,7 @@ describe("Phase 5C smoke — real chain against a local HTTP server", () => {
       lookup,
       env: { EMAIL_API_KEY: EMAIL_KEY },
     });
-    const result = await deliverDelivery(deliveryId, EVENT, sender, { db });
+    const result = await deliverDelivery(deliveryId, EVENT, sender, { repo: createSQLiteRepository(db) });
 
     expect(result.status).toBe("failed");
     expect(result.error).toContain("Blocked address 10.0.0.1");
@@ -316,7 +317,7 @@ describe("Phase 5C smoke — real chain against a local HTTP server", () => {
     const sender = new WebhookSender({ fetchFn: localFetch, lookup: publicLookup() });
 
     // First attempt fails.
-    const first = await deliverDelivery(deliveryId, EVENT, sender, { db });
+    const first = await deliverDelivery(deliveryId, EVENT, sender, { repo: createSQLiteRepository(db) });
     expect(first.status).toBe("failed");
     expect(getDelivery(deliveryId, db)!.attempts).toBe(1);
 
@@ -329,7 +330,7 @@ describe("Phase 5C smoke — real chain against a local HTTP server", () => {
 
     // Second attempt succeeds.
     queueResponses([{ status: 200 }]);
-    const second = await deliverDelivery(deliveryId, EVENT, sender, { db });
+    const second = await deliverDelivery(deliveryId, EVENT, sender, { repo: createSQLiteRepository(db) });
     expect(second).toEqual({ status: "sent" });
 
     const final = getDelivery(deliveryId, db)!;
@@ -353,8 +354,8 @@ describe("Phase 5C smoke — real chain against a local HTTP server", () => {
     const workerB = new WebhookSender({ fetchFn: localFetch, lookup: publicLookup() });
 
     const [a, b] = await Promise.all([
-      deliverDelivery(deliveryId, EVENT, workerA, { db }),
-      deliverDelivery(deliveryId, EVENT, workerB, { db }),
+      deliverDelivery(deliveryId, EVENT, workerA, { repo: createSQLiteRepository(db) }),
+      deliverDelivery(deliveryId, EVENT, workerB, { repo: createSQLiteRepository(db) }),
     ]);
 
     const statuses = [a.status, b.status].sort();

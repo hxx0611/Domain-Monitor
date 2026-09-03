@@ -26,6 +26,7 @@ import {
   notificationEvents,
   notificationRules,
 } from "@/db/schema";
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
 import { createTestDb } from "../../../test/helpers";
 import { createDnsSnapshot } from "@/lib/dns/repository";
 import { createSslSnapshot } from "@/lib/ssl/repository";
@@ -44,13 +45,10 @@ vi.mock("@/lib/http/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/http/client")>();
   return { ...actual, fetchHttpStatus: vi.fn() };
 });
-vi.mock("@/lib/domains", () => ({ getDomainById: vi.fn() }));
 
 import { fetchHttpStatus } from "@/lib/http/client";
-import { getDomainById } from "@/lib/domains";
 
 const mockedFetch = vi.mocked(fetchHttpStatus);
-const mockedGetDomain = vi.mocked(getDomainById);
 
 const OCCURRED = new Date("2026-08-15T00:00:00.000Z");
 
@@ -491,7 +489,7 @@ describe("worker consumes auto-generated deliveries", () => {
     expect(delivery.eventId).toBe(eventRow.id); // stable eventId linkage
 
     const sender = new RecordingSender();
-    const result = await runOnce({ db, senders: () => sender });
+    const result = await runOnce({ repo: createSQLiteRepository(db), senders: () => sender });
 
     expect(result).toEqual({
       expirationEvents: 0,
@@ -521,7 +519,6 @@ describe("real HTTP service path (checkHttp)", () => {
     const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
     const channelId = seedChannel(db);
     seedRule(db, channelId, { source: "http" });
-    mockedGetDomain.mockReturnValue({ id: domain.id, hostname: "example.com" } as never);
 
     // First check: ok, no previous → no event, no delivery.
     mockedFetch.mockResolvedValue({
@@ -532,14 +529,14 @@ describe("real HTTP service path (checkHttp)", () => {
       finalUrl: undefined,
       responseTimeMs: 12,
     } as never);
-    const first = await checkHttp(domain.id, { db });
+    const first = await checkHttp(domain.id, { repo: createSQLiteRepository(db) });
     expect(first.ok).toBe(true);
     expect(eventsFor(db)).toHaveLength(0);
     expect(db.select().from(notificationDeliveries).all()).toHaveLength(0);
 
     // Second check: transport failure → ok → error transition event.
     mockedFetch.mockRejectedValue(new Error("connection refused"));
-    const second = await checkHttp(domain.id, { db });
+    const second = await checkHttp(domain.id, { repo: createSQLiteRepository(db) });
     expect(second.ok).toBe(false);
 
     const events = eventsFor(db);
@@ -555,7 +552,7 @@ describe("real HTTP service path (checkHttp)", () => {
 
     // Third check: still error → no NEW event (same status), no new delivery.
     mockedFetch.mockRejectedValue(new Error("connection refused"));
-    await checkHttp(domain.id, { db });
+    await checkHttp(domain.id, { repo: createSQLiteRepository(db) });
     expect(eventsFor(db)).toHaveLength(1);
     expect(db.select().from(notificationDeliveries).all()).toHaveLength(1);
   });
@@ -565,7 +562,6 @@ describe("real HTTP service path (checkHttp)", () => {
     const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
     const channelId = seedChannel(db);
     seedRule(db, channelId, { source: "http" });
-    mockedGetDomain.mockReturnValue({ id: domain.id, hostname: "example.com" } as never);
 
     mockedFetch.mockResolvedValue({
       status: 200,
@@ -575,7 +571,7 @@ describe("real HTTP service path (checkHttp)", () => {
       finalUrl: undefined,
       responseTimeMs: 12,
     } as never);
-    await checkHttp(domain.id, { db });
+    await checkHttp(domain.id, { repo: createSQLiteRepository(db) });
 
     mockedFetch.mockResolvedValue({
       status: 503,
@@ -585,7 +581,7 @@ describe("real HTTP service path (checkHttp)", () => {
       finalUrl: undefined,
       responseTimeMs: 8,
     } as never);
-    const second = await checkHttp(domain.id, { db });
+    const second = await checkHttp(domain.id, { repo: createSQLiteRepository(db) });
     expect(second.ok).toBe(true);
 
     const deliveries = db.select().from(notificationDeliveries).all();
@@ -593,7 +589,7 @@ describe("real HTTP service path (checkHttp)", () => {
     expect(deliveries[0].status).toBe("pending");
 
     const sender = new RecordingSender();
-    const result = await runOnce({ db, senders: () => sender });
+    const result = await runOnce({ repo: createSQLiteRepository(db), senders: () => sender });
     expect(result.sent).toBe(1);
     expect(sender.calls).toEqual([deliveries[0].id]);
 

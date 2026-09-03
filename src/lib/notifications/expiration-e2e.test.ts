@@ -21,6 +21,7 @@ import {
   notificationEvents,
   notificationRules,
 } from "@/db/schema";
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
 import { createTestDb } from "../../../test/helpers";
 import { runOnce } from "./worker";
 import type { ChannelType, DeliverySender, NotificationEvent } from "./types";
@@ -77,7 +78,11 @@ describe("Phase 11D — expiration reminder E2E (fake sender)", () => {
     // Target day = 2026-08-20 − 7d = 2026-08-13; NOW is on/after that day.
     const NOW = new Date("2026-08-14T12:00:00.000Z");
 
-    const first = await runOnce({ db, now: NOW, senders: () => sender });
+    const first = await runOnce({
+      repo: createSQLiteRepository(db),
+      now: NOW,
+      senders: () => sender,
+    });
     expect(first).toEqual({
       expirationEvents: 1,
       recovered: 0,
@@ -102,7 +107,11 @@ describe("Phase 11D — expiration reminder E2E (fake sender)", () => {
     expect(sender.calls).toHaveLength(1);
 
     // Second tick: nothing new (dedup at event layer + UNIQUE(event_id, channel_id)).
-    const second = await runOnce({ db, now: NOW, senders: () => sender });
+    const second = await runOnce({
+      repo: createSQLiteRepository(db),
+      now: NOW,
+      senders: () => sender,
+    });
     expect(second).toEqual({
       expirationEvents: 0,
       recovered: 0,
@@ -126,7 +135,7 @@ describe("Phase 11D — expiration reminder E2E (fake sender)", () => {
       .run();
 
     const result = await runOnce({
-      db,
+      repo: createSQLiteRepository(db),
       now: new Date("2026-08-14T12:00:00.000Z"),
       senders: () => new FakeSender("webhook"),
     });

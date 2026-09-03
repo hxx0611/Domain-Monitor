@@ -6,6 +6,7 @@
  * clock inserts nothing new.
  */
 import { describe, expect, it } from "vitest";
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
 import { createTestDb } from "../../../test/helpers";
 import { createDomain, setExpirationReminders, updateDomain } from "@/lib/domains/repository";
 import { notificationEvents } from "@/db/schema";
@@ -64,7 +65,7 @@ describe("date helpers", () => {
 });
 
 describe("evaluateExpirationReminders", () => {
-  it("inserts one event per due reminder with the Phase 11A-8 dedup key", () => {
+  it("inserts one event per due reminder with the Phase 11A-8 dedup key", async () => {
     const db = createTestDb();
     const domain = createDomain(
       "opusai.eu.cc",
@@ -74,7 +75,10 @@ describe("evaluateExpirationReminders", () => {
     setExpirationReminders(domain.id, [30, 7, 1], db);
 
     // 2031-02-24: the 30-day reminder target day (03-26 minus 30).
-    const inserted = evaluateExpirationReminders(new Date("2031-02-24T08:00:00Z"), db);
+    const inserted = await evaluateExpirationReminders(
+      new Date("2031-02-24T08:00:00Z"),
+      createSQLiteRepository(db),
+    );
     expect(inserted).toBe(1);
     const events = remindersOf(db);
     expect(events).toHaveLength(1);
@@ -83,7 +87,7 @@ describe("evaluateExpirationReminders", () => {
     expect(events[0].dedupKey).toBe("expiration:1:2031-03-26:30");
   });
 
-  it("fires only once per reminder for the same expiration (dedup idempotency)", () => {
+  it("fires only once per reminder for the same expiration (dedup idempotency)", async () => {
     const db = createTestDb();
     const domain = createDomain(
       "opusai.eu.cc",
@@ -92,15 +96,30 @@ describe("evaluateExpirationReminders", () => {
     )!;
     setExpirationReminders(domain.id, [30], db);
 
-    expect(evaluateExpirationReminders(new Date("2031-02-24T08:00:00Z"), db)).toBe(1);
+    expect(
+      await evaluateExpirationReminders(
+        new Date("2031-02-24T08:00:00Z"),
+        createSQLiteRepository(db),
+      ),
+    ).toBe(1);
     // Second tick, same clock: nothing new (the dedup key already exists).
-    expect(evaluateExpirationReminders(new Date("2031-02-24T08:00:00Z"), db)).toBe(0);
+    expect(
+      await evaluateExpirationReminders(
+        new Date("2031-02-24T08:00:00Z"),
+        createSQLiteRepository(db),
+      ),
+    ).toBe(0);
     // Third tick, next day: still nothing new for the same key.
-    expect(evaluateExpirationReminders(new Date("2031-02-25T08:00:00Z"), db)).toBe(0);
+    expect(
+      await evaluateExpirationReminders(
+        new Date("2031-02-25T08:00:00Z"),
+        createSQLiteRepository(db),
+      ),
+    ).toBe(0);
     expect(remindersOf(db)).toHaveLength(1);
   });
 
-  it("a late tick still records a due reminder (never silently dropped)", () => {
+  it("a late tick still records a due reminder (never silently dropped)", async () => {
     const db = createTestDb();
     const domain = createDomain(
       "opusai.eu.cc",
@@ -110,10 +129,15 @@ describe("evaluateExpirationReminders", () => {
     setExpirationReminders(domain.id, [30], db);
 
     // The worker did not run on 02-24; it runs on 02-25 — still records.
-    expect(evaluateExpirationReminders(new Date("2031-02-25T08:00:00Z"), db)).toBe(1);
+    expect(
+      await evaluateExpirationReminders(
+        new Date("2031-02-25T08:00:00Z"),
+        createSQLiteRepository(db),
+      ),
+    ).toBe(1);
   });
 
-  it("does not fire before the target day", () => {
+  it("does not fire before the target day", async () => {
     const db = createTestDb();
     const domain = createDomain(
       "opusai.eu.cc",
@@ -122,11 +146,16 @@ describe("evaluateExpirationReminders", () => {
     )!;
     setExpirationReminders(domain.id, [30], db);
 
-    expect(evaluateExpirationReminders(new Date("2031-02-23T23:59:00Z"), db)).toBe(0);
+    expect(
+      await evaluateExpirationReminders(
+        new Date("2031-02-23T23:59:00Z"),
+        createSQLiteRepository(db),
+      ),
+    ).toBe(0);
     expect(remindersOf(db)).toEqual([]);
   });
 
-  it("a changed expiration date starts a fresh reminder cycle (new dedup key)", () => {
+  it("a changed expiration date starts a fresh reminder cycle (new dedup key)", async () => {
     const db = createTestDb();
     const domain = createDomain(
       "opusai.eu.cc",
@@ -134,21 +163,36 @@ describe("evaluateExpirationReminders", () => {
       db,
     )!;
     setExpirationReminders(domain.id, [30], db);
-    expect(evaluateExpirationReminders(new Date("2031-02-24T08:00:00Z"), db)).toBe(1);
+    expect(
+      await evaluateExpirationReminders(
+        new Date("2031-02-24T08:00:00Z"),
+        createSQLiteRepository(db),
+      ),
+    ).toBe(1);
 
     // Operator moves the expiry to 2031-04-26 → the 30-day target becomes
     // 03-27, which has arrived by then → a new event for the new date.
     updateDomain(domain.id, { expirationSource: "manual", expirationDate: "2031-04-26" }, db);
-    expect(evaluateExpirationReminders(new Date("2031-03-27T08:00:00Z"), db)).toBe(1);
+    expect(
+      await evaluateExpirationReminders(
+        new Date("2031-03-27T08:00:00Z"),
+        createSQLiteRepository(db),
+      ),
+    ).toBe(1);
     const keys = remindersOf(db).map((event) => event.dedupKey);
     expect(keys).toContain("expiration:1:2031-03-26:30");
     expect(keys).toContain("expiration:1:2031-04-26:30");
   });
 
-  it("domains without expiration dates or reminders are skipped", () => {
+  it("domains without expiration dates or reminders are skipped", async () => {
     const db = createTestDb();
     createDomain("chatgpt.com", undefined, db); // no expiration, rdap source
-    expect(evaluateExpirationReminders(new Date("2031-02-24T08:00:00Z"), db)).toBe(0);
+    expect(
+      await evaluateExpirationReminders(
+        new Date("2031-02-24T08:00:00Z"),
+        createSQLiteRepository(db),
+      ),
+    ).toBe(0);
   });
 });
 
@@ -163,7 +207,7 @@ describe("worker integration", () => {
     setExpirationReminders(domain.id, [30], db);
 
     const result = await runOnce({
-      db,
+      repo: createSQLiteRepository(db),
       now: new Date("2031-02-24T08:00:00Z"),
       senders: () => {
         throw new Error("no deliveries expected");
@@ -175,7 +219,7 @@ describe("worker integration", () => {
 
     // A second tick records nothing new.
     const again = await runOnce({
-      db,
+      repo: createSQLiteRepository(db),
       now: new Date("2031-02-24T09:00:00Z"),
       senders: () => {
         throw new Error("no deliveries expected");

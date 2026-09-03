@@ -140,7 +140,7 @@ const tgChannel = sqlite
   )
   .run(
     JSON.stringify({
-      chatId: "1616146471",
+      chatId: "100000001",
       secretRef: "TELEGRAM_BOT_TOKEN",
     }),
     now,
@@ -319,7 +319,7 @@ async function run() {
     check("Add Channel button", html.includes("Add Channel"));
     check("Add Rule button", html.includes("Add Rule"));
     check("row actions present (Edit/Disable/Delete)", ["Edit", "Disable", "Delete"].every((b) => html.includes(`>${b}</button>`)));
-    check("telegram row renders Chat ID", html.includes("Chat ID") && html.includes("1616146471"));
+    check("telegram row renders Chat ID", html.includes("Chat ID") && html.includes("100000001"));
     check("telegram secretRef NAME shown, not value", html.includes("TELEGRAM_BOT_TOKEN") && !html.includes(TEST_TELEGRAM_TOKEN));
     check("no channel marked configInvalid (RSC)", html.includes('configInvalid\\":false') && !html.includes('configInvalid\\":true'));
     check("no token value in HTML", !html.includes(TEST_TELEGRAM_TOKEN));

@@ -1,33 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { domains, sslCertificates, sslSnapshots, notificationEvents } from "@/db/schema";
 import { createTestDb } from "../../../test/helpers";
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
 import { checkSsl } from "./service";
 import { SslError } from "./client";
 import type { RawSslResult } from "./client";
 import type { RawCertificateLike } from "./normalize";
-import { getLatestSslSnapshot, getSslHistory, createSslSnapshot } from "./repository";
-import type { SslDb } from "./repository";
 
 vi.mock("./client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./client")>();
   return { ...actual, fetchSslCertificate: vi.fn() };
 });
 
-vi.mock("@/lib/domains", () => ({
-  getDomainById: vi.fn(),
-}));
-
-vi.mock("./repository", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./repository")>();
-  return { ...actual, createSslSnapshot: vi.fn(actual.createSslSnapshot) };
-});
-
-import { getDomainById } from "@/lib/domains";
 import { fetchSslCertificate } from "./client";
 
 const mockedFetch = vi.mocked(fetchSslCertificate);
-const mockedGetDomain = vi.mocked(getDomainById);
-const mockedCreateSnapshot = vi.mocked(createSslSnapshot);
 
 /** Raw certificate with dates relative to "now" for deterministic status. */
 function rawCert(
@@ -63,6 +50,7 @@ function daysFromNow(days: number): Date {
 
 describe("checkSsl", () => {
   const db = createTestDb();
+  const repo = createSQLiteRepository(db);
   let domainId = 0;
 
   beforeEach(() => {
@@ -72,27 +60,24 @@ describe("checkSsl", () => {
 
     const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
     domainId = domain.id;
-    mockedGetDomain.mockReturnValue({ id: domain.id, hostname: "example.com" } as never);
     mockedFetch.mockReset();
-    mockedCreateSnapshot.mockClear();
   });
 
   it("rejects an unknown domain id without touching the TLS client", async () => {
-    mockedGetDomain.mockReturnValue(undefined as never);
-    const result = await checkSsl(999999, { db });
+    const result = await checkSsl(999999, { repo });
     expect(result).toEqual({ ok: false, error: "Domain not found." });
     expect(mockedFetch).not.toHaveBeenCalled();
   });
 
   it("creates a first successful snapshot without change events", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    const result = await checkSsl(domainId, { db });
+    const result = await checkSsl(domainId, { repo });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.changes).toEqual([]);
 
-    const latest = getLatestSslSnapshot(domainId, db);
+    const latest = await repo.getLatestSslSnapshot(domainId);
     expect(latest?.status).toBe("ok");
     expect(latest?.tlsVersion).toBe("TLSv1.3");
     expect(latest?.certificate?.fingerprint256).toBe("AA:BB:CC:DD");
@@ -100,9 +85,9 @@ describe("checkSsl", () => {
 
   it("reports no changes on a second check with the same fingerprint", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
 
-    const second = await checkSsl(domainId, { db });
+    const second = await checkSsl(domainId, { repo });
     expect(second.ok).toBe(true);
     if (second.ok) {
       expect(second.changes).toEqual([]);
@@ -111,12 +96,12 @@ describe("checkSsl", () => {
 
   it("reports CERT_REPLACED when the certificate changes", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
 
     mockedFetch.mockResolvedValue(
       rawResult({ certificate: rawCert({ fingerprint256: "EE:FF:00:11" }) }),
     );
-    const second = await checkSsl(domainId, { db });
+    const second = await checkSsl(domainId, { repo });
 
     expect(second.ok).toBe(true);
     if (second.ok) {
@@ -134,10 +119,10 @@ describe("checkSsl", () => {
     mockedFetch.mockResolvedValue(
       rawResult({ certificate: rawCert({ validToDate: daysFromNow(-5) }) }),
     );
-    const result = await checkSsl(domainId, { db });
+    const result = await checkSsl(domainId, { repo });
 
     expect(result.ok).toBe(true);
-    const latest = getLatestSslSnapshot(domainId, db);
+    const latest = await repo.getLatestSslSnapshot(domainId);
     expect(latest?.status).toBe("expired");
   });
 
@@ -145,10 +130,10 @@ describe("checkSsl", () => {
     mockedFetch.mockResolvedValue(
       rawResult({ certificate: rawCert({ validToDate: daysFromNow(10) }) }),
     );
-    const result = await checkSsl(domainId, { db });
+    const result = await checkSsl(domainId, { repo });
 
     expect(result.ok).toBe(true);
-    const latest = getLatestSslSnapshot(domainId, db);
+    const latest = await repo.getLatestSslSnapshot(domainId);
     expect(latest?.status).toBe("expires_soon");
   });
 
@@ -158,21 +143,21 @@ describe("checkSsl", () => {
         certificate: rawCert({ checkHost: () => undefined }),
       }),
     );
-    const result = await checkSsl(domainId, { db });
+    const result = await checkSsl(domainId, { repo });
 
     // Mismatch must NOT fail the check or block the write.
     expect(result.ok).toBe(true);
-    const latest = getLatestSslSnapshot(domainId, db);
+    const latest = await repo.getLatestSslSnapshot(domainId);
     expect(latest?.status).toBe("mismatch");
     expect(latest?.certificate?.hostnameMatched).toBe(false);
   });
 
   it("writes an error snapshot on TLS failure and preserves the previous certificate", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
 
     mockedFetch.mockRejectedValue(new SslError("No TLS service on port 443.", "no-tls-service"));
-    const failed = await checkSsl(domainId, { db });
+    const failed = await checkSsl(domainId, { repo });
 
     expect(failed).toEqual({
       ok: false,
@@ -181,7 +166,7 @@ describe("checkSsl", () => {
     });
 
     // History now has [error snapshot, previous success] — certificate intact.
-    const history = getSslHistory(domainId, 10, db);
+    const history = await repo.getSslHistory(domainId, 10);
     expect(history).toHaveLength(2);
     expect(history[0].status).toBe("error");
     expect(history[0].error).toBe("ssl_no_tls_service");
@@ -200,8 +185,8 @@ describe("checkSsl", () => {
       return rawResult();
     });
 
-    const first = checkSsl(domainId, { db });
-    const second = await checkSsl(domainId, { db });
+    const first = checkSsl(domainId, { repo });
+    const second = await checkSsl(domainId, { repo });
     expect(second).toEqual({ ok: false, error: "An SSL check is already in progress." });
 
     release();
@@ -210,41 +195,39 @@ describe("checkSsl", () => {
 
   it("allows a new check after a failed one (in-flight guard released)", async () => {
     mockedFetch.mockRejectedValueOnce(new Error("timeout"));
-    const failed = await checkSsl(domainId, { db });
+    const failed = await checkSsl(domainId, { repo });
     expect(failed.ok).toBe(false);
 
     mockedFetch.mockResolvedValue(rawResult());
-    const retried = await checkSsl(domainId, { db });
+    const retried = await checkSsl(domainId, { repo });
     expect(retried.ok).toBe(true);
   });
 
   it("propagates repository failures and releases the guard (atomic)", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    mockedCreateSnapshot.mockImplementationOnce(() => {
-      throw new Error("db down");
-    });
+    const spy = vi.spyOn(repo, "createSslSnapshot").mockRejectedValueOnce(new Error("db down"));
 
-    await expect(checkSsl(domainId, { db })).rejects.toThrow("db down");
+    await expect(checkSsl(domainId, { repo })).rejects.toThrow("db down");
+    spy.mockRestore();
 
     // Guard released: a subsequent check succeeds.
-    const retried = await checkSsl(domainId, { db });
+    const retried = await checkSsl(domainId, { repo });
     expect(retried.ok).toBe(true);
   });
 
   it("rolls back the whole snapshot when the certificate insert fails (DB atomicity)", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    const dbHandle = db as SslDb & { run: (sql: string) => unknown };
 
     // Force certificate inserts to fail inside the transaction.
-    dbHandle.run(`
+    db.run(`
       CREATE TRIGGER fail_cert_insert
       BEFORE INSERT ON ssl_certificates
       BEGIN SELECT RAISE(ABORT, 'forced failure'); END;
     `);
 
-    await expect(checkSsl(domainId, { db })).rejects.toThrow("forced failure");
+    await expect(checkSsl(domainId, { repo })).rejects.toThrow("forced failure");
 
-    dbHandle.run("DROP TRIGGER fail_cert_insert");
+    db.run("DROP TRIGGER fail_cert_insert");
 
     // The snapshot insert was rolled back with the certificate insert.
     expect(db.select().from(sslSnapshots).all()).toHaveLength(0);
@@ -254,6 +237,7 @@ describe("checkSsl", () => {
 
 describe("checkSsl notification events (V0.6)", () => {
   const db = createTestDb();
+  const repo = createSQLiteRepository(db);
   let domainId = 0;
 
   beforeEach(() => {
@@ -263,7 +247,6 @@ describe("checkSsl notification events (V0.6)", () => {
     db.delete(domains).run();
     const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
     domainId = domain.id;
-    mockedGetDomain.mockReturnValue({ id: domain.id, hostname: "example.com" } as never);
     mockedFetch.mockReset();
   });
 
@@ -273,18 +256,18 @@ describe("checkSsl notification events (V0.6)", () => {
 
   it("produces zero events on the first check", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
     expect(eventRows()).toHaveLength(0);
   });
 
   it("produces one event when the certificate is replaced", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
 
     mockedFetch.mockResolvedValue(
       rawResult({ certificate: rawCert({ fingerprint256: "EE:FF:00:11" }) }),
     );
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
 
     const events = eventRows();
     expect(events).toHaveLength(1);
@@ -295,12 +278,12 @@ describe("checkSsl notification events (V0.6)", () => {
 
   it("produces one event when the SSL status changes", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
 
     mockedFetch.mockResolvedValue(
       rawResult({ certificate: rawCert({ validToDate: daysFromNow(10) }) }),
     );
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
 
     const events = eventRows();
     expect(events).toHaveLength(1);
@@ -310,14 +293,14 @@ describe("checkSsl notification events (V0.6)", () => {
 
   it("produces two events when cert replaced AND status changes together", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
 
     mockedFetch.mockResolvedValue(
       rawResult({
         certificate: rawCert({ fingerprint256: "EE:FF:00:11", validToDate: daysFromNow(-5) }),
       }),
     );
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
 
     const events = eventRows();
     expect(events).toHaveLength(2);
@@ -329,8 +312,8 @@ describe("checkSsl notification events (V0.6)", () => {
 
   it("produces zero events when nothing changed", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkSsl(domainId, { db });
-    await checkSsl(domainId, { db });
+    await checkSsl(domainId, { repo });
+    await checkSsl(domainId, { repo });
     expect(eventRows()).toHaveLength(0);
   });
 });

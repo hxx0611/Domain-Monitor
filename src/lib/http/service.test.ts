@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { domains, httpSnapshots, notificationEvents } from "@/db/schema";
 import { createTestDb } from "../../../test/helpers";
+import { createSQLiteRepository } from "@/db/adapters/sqlite";
 import { checkHttp } from "./service";
-import { createHttpSnapshot, getHttpHistory, getLatestHttpSnapshot } from "./repository";
 import { HttpError } from "./client";
 import type { RawHttpResult } from "./client";
 
@@ -10,21 +10,10 @@ vi.mock("./client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./client")>();
   return { ...actual, fetchHttpStatus: vi.fn() };
 });
-vi.mock("@/lib/domains", () => ({
-  getDomainById: vi.fn(),
-}));
 
-vi.mock("./repository", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./repository")>();
-  return { ...actual, createHttpSnapshot: vi.fn(actual.createHttpSnapshot) };
-});
-
-import { getDomainById } from "@/lib/domains";
 import { fetchHttpStatus } from "./client";
 
 const mockedFetch = vi.mocked(fetchHttpStatus);
-const mockedGetDomain = vi.mocked(getDomainById);
-const mockedCreateSnapshot = vi.mocked(createHttpSnapshot);
 
 function rawResult(overrides: Partial<RawHttpResult> = {}): RawHttpResult {
   return {
@@ -40,6 +29,7 @@ function rawResult(overrides: Partial<RawHttpResult> = {}): RawHttpResult {
 
 describe("checkHttp", () => {
   const db = createTestDb();
+  const repo = createSQLiteRepository(db);
   let domainId = 0;
 
   beforeEach(() => {
@@ -48,24 +38,21 @@ describe("checkHttp", () => {
 
     const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
     domainId = domain.id;
-    mockedGetDomain.mockReturnValue({ id: domain.id, hostname: "example.com" } as never);
     mockedFetch.mockReset();
-    mockedCreateSnapshot.mockClear();
   });
 
   it("rejects an unknown domain id without touching the HTTP client", async () => {
-    mockedGetDomain.mockReturnValue(undefined as never);
-    const result = await checkHttp(999999, { db });
+    const result = await checkHttp(999999, { repo });
     expect(result).toEqual({ ok: false, error: "Domain not found." });
     expect(mockedFetch).not.toHaveBeenCalled();
   });
 
   it("records a 200 response as ok", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    const result = await checkHttp(domainId, { db });
+    const result = await checkHttp(domainId, { repo });
 
     expect(result.ok).toBe(true);
-    const latest = getLatestHttpSnapshot(domainId, db);
+    const latest = await repo.getLatestHttpSnapshot(domainId);
     expect(latest?.status).toBe("ok");
     expect(latest?.httpStatus).toBe(200);
     expect(latest?.responseTimeMs).toBe(243);
@@ -73,20 +60,20 @@ describe("checkHttp", () => {
 
   it("records a 4xx response as client_error", async () => {
     mockedFetch.mockResolvedValue(rawResult({ status: 404, statusText: "Not Found" }));
-    const result = await checkHttp(domainId, { db });
+    const result = await checkHttp(domainId, { repo });
 
     expect(result.ok).toBe(true);
-    const latest = getLatestHttpSnapshot(domainId, db);
+    const latest = await repo.getLatestHttpSnapshot(domainId);
     expect(latest?.status).toBe("client_error");
     expect(latest?.httpStatus).toBe(404);
   });
 
   it("records a 5xx response as server_error", async () => {
     mockedFetch.mockResolvedValue(rawResult({ status: 503, statusText: "Service Unavailable" }));
-    const result = await checkHttp(domainId, { db });
+    const result = await checkHttp(domainId, { repo });
 
     expect(result.ok).toBe(true);
-    const latest = getLatestHttpSnapshot(domainId, db);
+    const latest = await repo.getLatestHttpSnapshot(domainId);
     expect(latest?.status).toBe("server_error");
     expect(latest?.httpStatus).toBe(503);
   });
@@ -100,10 +87,10 @@ describe("checkHttp", () => {
         finalUrl: "https://example.com/final",
       }),
     );
-    const result = await checkHttp(domainId, { db });
+    const result = await checkHttp(domainId, { repo });
 
     expect(result.ok).toBe(true);
-    const latest = getLatestHttpSnapshot(domainId, db);
+    const latest = await repo.getLatestHttpSnapshot(domainId);
     expect(latest?.redirected).toBe(true);
     expect(latest?.redirectCount).toBe(2);
     expect(latest?.finalUrl).toBe("https://example.com/final");
@@ -111,10 +98,10 @@ describe("checkHttp", () => {
 
   it("writes an error snapshot on transport failure and preserves the previous snapshot", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkHttp(domainId, { db });
+    await checkHttp(domainId, { repo });
 
     mockedFetch.mockRejectedValue(new HttpError("HTTP request failed (network error).", "network"));
-    const failed = await checkHttp(domainId, { db });
+    const failed = await checkHttp(domainId, { repo });
 
     expect(failed).toEqual({
       ok: false,
@@ -122,7 +109,7 @@ describe("checkHttp", () => {
       errorCode: "http_network",
     });
 
-    const history = getHttpHistory(domainId, 10, db);
+    const history = await repo.getHttpHistory(domainId, 10);
     expect(history).toHaveLength(2);
     expect(history[0].status).toBe("error");
     expect(history[0].error).toBe("http_network");
@@ -136,7 +123,7 @@ describe("checkHttp", () => {
     mockedFetch.mockRejectedValue(
       new HttpError("Blocked address 10.0.0.1 resolved for internal.example.", "blocked-redirect"),
     );
-    const result = await checkHttp(domainId, { db });
+    const result = await checkHttp(domainId, { repo });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -144,7 +131,7 @@ describe("checkHttp", () => {
       expect(result.error).not.toContain("10.0.0.1");
       expect(result.error).not.toContain("internal.example");
     }
-    const latest = getLatestHttpSnapshot(domainId, db);
+    const latest = await repo.getLatestHttpSnapshot(domainId);
     expect(latest?.status).toBe("error");
     expect(latest?.error).toBe("http_blocked_redirect");
     expect(latest?.error).not.toContain("10.0.0.1");
@@ -160,8 +147,8 @@ describe("checkHttp", () => {
       return rawResult();
     });
 
-    const first = checkHttp(domainId, { db });
-    const second = await checkHttp(domainId, { db });
+    const first = checkHttp(domainId, { repo });
+    const second = await checkHttp(domainId, { repo });
     expect(second).toEqual({ ok: false, error: "An HTTP check is already in progress." });
 
     release();
@@ -170,24 +157,23 @@ describe("checkHttp", () => {
 
   it("allows a new check after a failed one (in-flight guard released)", async () => {
     mockedFetch.mockRejectedValueOnce(new Error("timeout"));
-    const failed = await checkHttp(domainId, { db });
+    const failed = await checkHttp(domainId, { repo });
     expect(failed.ok).toBe(false);
 
     mockedFetch.mockResolvedValue(rawResult());
-    const retried = await checkHttp(domainId, { db });
+    const retried = await checkHttp(domainId, { repo });
     expect(retried.ok).toBe(true);
   });
 
   it("propagates repository failures and releases the guard (atomic)", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    mockedCreateSnapshot.mockImplementationOnce(() => {
-      throw new Error("db down");
-    });
+    const spy = vi.spyOn(repo, "createHttpSnapshot").mockRejectedValueOnce(new Error("db down"));
 
-    await expect(checkHttp(domainId, { db })).rejects.toThrow("db down");
+    await expect(checkHttp(domainId, { repo })).rejects.toThrow("db down");
+    spy.mockRestore();
 
     // Guard released: a subsequent check succeeds.
-    const retried = await checkHttp(domainId, { db });
+    const retried = await checkHttp(domainId, { repo });
     expect(retried.ok).toBe(true);
   });
 
@@ -203,7 +189,7 @@ describe("checkHttp", () => {
     });
     mockedFetch.mockImplementationOnce(async () => rawResult());
 
-    const first = checkHttp(domainId, { db });
+    const first = checkHttp(domainId, { repo });
     // Simulate an unexpected failure inside the service after the guard is held.
     // The first promise never settles until we release the gate; instead we
     // verify the guard is released on the normal path and on rejection paths
@@ -211,13 +197,13 @@ describe("checkHttp", () => {
     // once the first completed.
     release();
     await first;
-    const second = await checkHttp(domainId, { db });
+    const second = await checkHttp(domainId, { repo });
     expect(second.ok).toBe(true);
   });
 
   it("first check creates a snapshot without any change events", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    const result = await checkHttp(domainId, { db });
+    const result = await checkHttp(domainId, { repo });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -231,6 +217,7 @@ describe("checkHttp", () => {
 
 describe("checkHttp notification events (V0.6)", () => {
   const db = createTestDb();
+  const repo = createSQLiteRepository(db);
   let domainId = 0;
 
   beforeEach(() => {
@@ -239,7 +226,6 @@ describe("checkHttp notification events (V0.6)", () => {
     db.delete(domains).run();
     const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
     domainId = domain.id;
-    mockedGetDomain.mockReturnValue({ id: domain.id, hostname: "example.com" } as never);
     mockedFetch.mockReset();
   });
 
@@ -249,16 +235,16 @@ describe("checkHttp notification events (V0.6)", () => {
 
   it("produces zero events on the first check", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkHttp(domainId, { db });
+    await checkHttp(domainId, { repo });
     expect(eventRows()).toHaveLength(0);
   });
 
   it("produces one event for ok → down", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkHttp(domainId, { db });
+    await checkHttp(domainId, { repo });
 
     mockedFetch.mockRejectedValue(new Error("ECONNREFUSED"));
-    await checkHttp(domainId, { db });
+    await checkHttp(domainId, { repo });
 
     const events = eventRows();
     expect(events).toHaveLength(1);
@@ -268,18 +254,18 @@ describe("checkHttp notification events (V0.6)", () => {
 
   it("produces zero events when the status is unchanged", async () => {
     mockedFetch.mockResolvedValue(rawResult());
-    await checkHttp(domainId, { db });
-    await checkHttp(domainId, { db });
+    await checkHttp(domainId, { repo });
+    await checkHttp(domainId, { repo });
     expect(eventRows()).toHaveLength(0);
   });
 
   it("produces one event for down → ok recovery", async () => {
     mockedFetch.mockRejectedValue(new Error("ECONNREFUSED"));
-    await checkHttp(domainId, { db });
+    await checkHttp(domainId, { repo });
     expect(eventRows()).toHaveLength(0); // first check: no previous → no event
 
     mockedFetch.mockResolvedValue(rawResult());
-    await checkHttp(domainId, { db });
+    await checkHttp(domainId, { repo });
 
     const events = eventRows();
     expect(events).toHaveLength(1);
@@ -291,14 +277,14 @@ describe("checkHttp notification events (V0.6)", () => {
 describe("checkHttp event/snapshot atomicity (V0.6)", () => {
   it("rolls back the snapshot when the event insert fails (same transaction)", async () => {
     const db = createTestDb();
+    const repo = createSQLiteRepository(db);
     const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
     const id = domain.id;
-    mockedGetDomain.mockReturnValue({ id, hostname: "example.com" } as never);
     mockedFetch.mockReset();
 
     // First check establishes an ok baseline (no event, snapshot saved).
     mockedFetch.mockResolvedValue(rawResult());
-    await checkHttp(id, { db });
+    await checkHttp(id, { repo });
     expect(db.select().from(httpSnapshots).all()).toHaveLength(1);
 
     // Force event inserts to fail; the ok → error transition would emit an
@@ -313,7 +299,7 @@ describe("checkHttp event/snapshot atomicity (V0.6)", () => {
     // The error branch swallows the DB failure (logs it) and returns a
     // user-safe failure; the key guarantee is atomicity: the error snapshot
     // was NOT persisted without its event.
-    const result = await checkHttp(id, { db });
+    const result = await checkHttp(id, { repo });
     expect(result).toMatchObject({ ok: false, error: "HTTP monitoring unavailable." });
     if (!result.ok) {
       // Non-client error (plain Error) collapses to http_unknown.
@@ -330,15 +316,15 @@ describe("checkHttp event/snapshot atomicity (V0.6)", () => {
 
   it("keeps the original error-snapshot behavior when event generation is a no-op", async () => {
     const db = createTestDb();
+    const repo = createSQLiteRepository(db);
     const domain = db.insert(domains).values({ hostname: "example.com" }).returning().get();
     const id = domain.id;
-    mockedGetDomain.mockReturnValue({ id, hostname: "example.com" } as never);
     mockedFetch.mockReset();
 
     // First check fails: no previous snapshot → no event, but the error
     // snapshot IS written (unchanged V0.5 behavior).
     mockedFetch.mockRejectedValue(new Error("timeout"));
-    const result = await checkHttp(id, { db });
+    const result = await checkHttp(id, { repo });
 
     expect(result).toEqual({
       ok: false,

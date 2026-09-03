@@ -102,7 +102,7 @@ const ch = sqlite
     `INSERT INTO notification_channels (type, name, config, enabled, created_at)
      VALUES ('telegram', 'Seed TG', ?, 1, ?)`,
   )
-  .run(JSON.stringify({ chatId: "1616146471", secretRef: "TELEGRAM_BOT_TOKEN" }), now);
+  .run(JSON.stringify({ chatId: "100000001", secretRef: "TELEGRAM_BOT_TOKEN" }), now);
 const channelId = Number(ch.lastInsertRowid);
 const rule = sqlite
   .prepare(
@@ -220,13 +220,13 @@ try {
   const created = await postAction("createChannelAction", {
     type: "telegram",
     name: "New TG",
-    config: JSON.stringify({ chatId: "1616146471", secretRef: "TELEGRAM_BOT_TOKEN" }),
+    config: JSON.stringify({ chatId: "100000001", secretRef: "TELEGRAM_BOT_TOKEN" }),
   });
   check("create ok", created.ok === true);
   let dbState = readDb();
   const newChannel = dbState.channels.find((c) => c.name === "New TG");
   check("channel inserted", !!newChannel && newChannel.type === "telegram" && newChannel.enabled === 1);
-  check("config has chatId+secretRef only", JSON.parse(newChannel.config).chatId === "1616146471" && JSON.parse(newChannel.config).secretRef === "TELEGRAM_BOT_TOKEN");
+  check("config has chatId+secretRef only", JSON.parse(newChannel.config).chatId === "100000001" && JSON.parse(newChannel.config).secretRef === "TELEGRAM_BOT_TOKEN");
   const newChannelId = newChannel.id;
 
   // --- Edit Telegram channel ---
@@ -300,7 +300,7 @@ try {
   const badRef = await postAction("createChannelAction", {
     type: "telegram",
     name: "bad",
-    config: JSON.stringify({ chatId: "1616146471", secretRef: "BAD REF!" }),
+    config: JSON.stringify({ chatId: "100000001", secretRef: "BAD REF!" }),
   });
   check("invalid secretRef → controlled code", badRef.ok === false && /^[a-z_]+$/.test(badRef.error));
   const badType = await postAction("createChannelAction", { type: "fax", name: "x", config: "{}" });
