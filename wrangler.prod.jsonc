@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "domain-monitor",
+  "main": "custom-worker.ts",
+  // Phase 14C-16: wrangler bundles custom-worker.ts with esbuild, which by
+  // default reads tsconfig.json (`@/*` → `./src/*`) — so `@/db` resolved to the
+  // REAL `src/db/index.ts` (→ better-sqlite3 → `new Database(...)`), leaking
+  // into the worker bundle even after the Next/webpack alias fix. Point wrangler
+  // at `tsconfig.cf.json`, which maps `@/db`, `@/db/node-singleton`, and
+  // `server-only` to the forbidden stubs. Same strategy the built
+  // `prototype/cloudflare/scheduled-worker.mjs` uses (new Database => 0).
+  "tsconfig": "tsconfig.cf.json",
+  // Phase 14C-16: Cloudflare's official OpenNext/Next.js line uses a CURRENT
+  // compatibility date. `2024-09-23` (bare minimum) enables an OLDER
+  // `nodejs_compat` runtime; newer dates enable the full node:fs / node:dns
+  // / node:net / node:sqlite surface the app's handler closure needs.
+  "compatibility_date": "2026-08-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  // NO prototype vars. NO CONFIG_TELEGRAM_ENDPOINT override → the senders use
+  // the real Telegram API endpoint (unless a secret/env provides one).
+  // ENCRYPTION_KEY + SESSION_SECRET are injected as SECRETS (wrangler secret
+  // put / --secrets-file), never as plain `vars`.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "domain-monitor",
+      "database_id": "4437f46a-632d-4dfa-aba0-4c5bc41fa64d",
+      "migrations_dir": "src/db/migrations"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  // Phase 14C-24: Cron trigger ACTIVATED. Every hour at top-of-hour, the
+  // production Worker's `scheduled()` handler wakes on the D1-backed
+  // `runOnce` notification pipeline (expiration reminders + pending deliveries).
+  // Idempotent via event dedup keys + CAS claim; safe to run hourly.
+  "triggers": {
+    "crons": ["0 * * * *"]
+  }
+}

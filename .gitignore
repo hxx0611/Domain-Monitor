@@ -39,3 +39,8 @@ Thumbs.db
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Cloudflare/OpenNext build artifacts (Phase 14C-30 cleanup — Do NOT commit)
+.wrangler/
+.open-next/
+prototype/

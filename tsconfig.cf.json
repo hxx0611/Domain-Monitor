@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/db": ["./src/db/cloudflare-stub.ts"],
+      "@/db/node-singleton": ["./src/db/cloudflare-node-singleton-stub.ts"],
+      // Phase 14C-16: the real `server-only` package throws at import time to
+      // guard Next client bundles. In a Cloudflare Worker everything is server,
+      // so that throw fires during deploy-side top-level scope validation
+      // (error 10021) when custom-worker.ts imports server-only modules. Point
+      // wrangler/esbuild (which reads this tsconfig) at an empty stub.
+      "server-only": ["./src/db/server-only-stub.ts"]
+    }
+  },
+  "exclude": ["node_modules", "prototype", "src/db/node-singleton.ts"]
+}
