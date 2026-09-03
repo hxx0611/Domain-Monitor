@@ -13,5 +13,5 @@
       "server-only": ["./src/db/server-only-stub.ts"]
     }
   },
-  "exclude": ["node_modules", "prototype", "src/db/node-singleton.ts"]
+  "exclude": ["node_modules", "prototype", "src/db/node-singleton.ts", "custom-worker.ts"]
 }
