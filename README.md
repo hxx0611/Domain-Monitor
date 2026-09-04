@@ -58,12 +58,18 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 > This section is written for people who have **never used Cloudflare Workers / D1 / OpenNext**. Follow every step in order, don't skip any.
 > When done, you will have a **fully self-owned** Cloudflare deployment (your own Worker, your own D1, your own domain) — you will not touch anyone else's production resources.
 
+> 🚨🚨🚨 **READ THIS BEFORE YOU START (SAFETY WARNING)** 🚨🚨🚨
+>
+> 1. **Never use the `database_id` from the repo's `wrangler.prod.jsonc`.** It is the **author's production database ID** — it does not exist in your account and deploying with it will fail; if you ever run it against the author's account it could touch the author's production data. **You must create your own D1 and replace `database_id` with yours** (see Step 3).
+> 2. **If a Worker or D1 named `domain-monitor` already exists in your Cloudflare account** (e.g. you deployed before), `wrangler d1 create domain-monitor` will conflict and `wrangler deploy` will **overwrite your existing Worker of the same name**. Use a unique name instead, e.g. `domain-monitor-yourname`, and keep the Worker name, D1 name, the `"name"`/`database_name` in `wrangler.prod.jsonc`, and every command below **consistent**.
+> 3. **Never run `wrangler secret put`, `wrangler deploy`, or any other mutating command against a Worker you don't own.** First confirm the current Cloudflare account is yours.
+
 ### 0. Prerequisites
 
 - A [Cloudflare](https://dash.cloudflare.com/) account (the free tier is enough)
 - A domain (recommended but optional; you can validate on a `*.workers.dev` temporary domain first)
 - Node.js 22+ and pnpm (same as above)
-- A machine with `bash`; Windows users see section 11
+- A machine with `bash`; Windows users see section 7 for the PowerShell build command
 
 ### 1. Clone and install
 
@@ -79,12 +85,23 @@ Wrangler (Cloudflare's official CLI) and the OpenNext Cloudflare adapter are **n
 pnpm add -D wrangler @opennextjs/cloudflare
 ```
 
-> ⚠️ **pnpm 11 requires approving workerd's build script**: wrangler depends on `workerd`, and pnpm 11 blocks dependency postinstall scripts by default, so you may see `ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: workerd`. If you don't approve it, the OpenNext build below will fail. Either:
+> ⚠️ **pnpm 11 requires approving workerd's build script**: wrangler depends on `workerd`, and pnpm 11 blocks dependency postinstall scripts by default, so you may see `ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: workerd`. If you don't approve it, the OpenNext build below will fail.
 >
-> - Edit `pnpm-workspace.yaml` and add `workerd: true` under `allowBuilds` (if pnpm already inserted a placeholder line `workerd: set this to true or false`, just change it to `workerd: true`); or
-> - Run `pnpm approve-builds` and allow `workerd` when prompted.
+> **Recommended (simplest, won't break the file): run**
 >
-> Then re-run `pnpm install` and confirm the warning is gone.
+> ```bash
+> pnpm approve-builds
+> ```
+>
+> Select `workerd` when prompted, then re-run `pnpm install`.
+>
+> **Alternative (manual edit of `pnpm-workspace.yaml`)**:
+>
+> 1. Open `pnpm-workspace.yaml` and check whether pnpm already inserted a placeholder line (e.g. `workerd: set this to true or false`);
+> 2. **If a `workerd` entry already exists: change its value to `workerd: true` — never add a second line**;
+> 3. **If no `workerd` entry exists: append one line `workerd: true` under `allowBuilds:`** (match the existing indentation).
+>
+> ⚠️ **Do not** add `allowBuilds:` or `workerd:` twice in the same YAML file — duplicate keys make `pnpm install` fail with `duplicated mapping key`. Re-run `pnpm install` after editing and confirm the warning is gone.
 
 Verify:
 
@@ -115,6 +132,8 @@ export CLOUDFLARE_ACCOUNT_ID=your-account-id   # from the Dashboard footer
 
 ### 3. Create your own D1 database ⚠️ most important
 
+> ⚠️ **If a D1 or Worker named `domain-monitor` already exists in your account, use a unique name** instead, e.g. `domain-monitor-yourname` (replace `yourname` with your own identifier). **Never overwrite resources that are not yours.** Replace `domain-monitor` with your unique name in every command below.
+
 ```bash
 pnpm exec wrangler d1 create domain-monitor
 ```
@@ -132,12 +151,14 @@ database_id = "<YOUR_DATABASE_ID>"
 
 > ⚠️ **Never use the `database_id` already present in the repo's `wrangler.prod.jsonc`** (it belongs to the author's production environment; it doesn't exist in your account and deploying with it will fail — or worse, could touch the author's production data if you ever run it against that account). **Copy the `<YOUR_DATABASE_ID>` from the output above.**
 
-Open `wrangler.prod.jsonc` and replace `d1_databases[0].database_id` with your own `<YOUR_DATABASE_ID>` (keep `binding = "DB"` and `database_name = "domain-monitor"`).
+Open `wrangler.prod.jsonc` and replace `d1_databases[0].database_id` with your own `<YOUR_DATABASE_ID>` (keep `binding = "DB"`). **If you used a unique name** (e.g. `domain-monitor-yourname`), also change `d1_databases[0].database_name` and the top-level `"name"` to that same name — **the Worker name, D1 name, config file, and every command below must be consistent**.
 
 ### 4. Apply D1 migrations
 
+> Run this **from the repo root** (after `cd Domain-Monitor`) and **always pass `--config wrangler.prod.jsonc`** — there is no default `wrangler.jsonc` at the repo root, so omitting `--config` fails with `No configuration file found`.
+
 ```bash
-pnpm exec wrangler d1 migrations apply domain-monitor --remote
+pnpm exec wrangler d1 migrations apply domain-monitor --remote --config wrangler.prod.jsonc
 ```
 
 - This applies `src/db/migrations/` to the D1 database **you just created** (`--remote` = cloud).
@@ -149,9 +170,11 @@ pnpm exec wrangler d1 migrations apply domain-monitor --remote
 - `ENCRYPTION_KEY`: encrypts sensitive data such as Telegram tokens (AES-256-GCM). **Once set, losing it makes the encrypted data unrecoverable.**
 - `SESSION_SECRET`: signs login sessions (cookies).
 
+> Run from the repo root and **always pass `--config wrangler.prod.jsonc`** so the secrets are written to **your** Worker (the one you named in Step 3).
+
 ```bash
-openssl rand -hex 32 | pnpm exec wrangler secret put ENCRYPTION_KEY
-openssl rand -hex 32 | pnpm exec wrangler secret put SESSION_SECRET
+openssl rand -hex 32 | pnpm exec wrangler secret put ENCRYPTION_KEY --config wrangler.prod.jsonc
+openssl rand -hex 32 | pnpm exec wrangler secret put SESSION_SECRET --config wrangler.prod.jsonc
 ```
 
 On Windows PowerShell, if `openssl` is not available, generate the 64-hex value first and paste it when prompted:
@@ -161,6 +184,8 @@ On Windows PowerShell, if `openssl` is not available, generate the 64-hex value 
 ```
 
 > Each command prompts for the secret; paste the 64-hex value. These values are **never written to git, README, `.env`, or any config file** — they live only in Cloudflare Secrets.
+>
+> ⚠️ **Never run `wrangler secret put` against a Worker you don't own** — it writes the secret to that Worker and overwrites any existing value. Before running, confirm the `"name"` in `wrangler.prod.jsonc` is your own Worker name.
 
 ### 6. Clean old build cache
 
@@ -180,6 +205,15 @@ Remove-Item -Recurse -Force .next,.open-next
 
 ```bash
 OPENNEXT_CLOUDFLARE=1 SKIP_WRANGLER_CONFIG_CHECK=yes pnpm exec opennextjs-cloudflare build
+```
+
+Windows PowerShell (same build command, environment variables set via `$env:`):
+
+```powershell
+$env:OPENNEXT_CLOUDFLARE="1"
+$env:SKIP_WRANGLER_CONFIG_CHECK="yes"
+pnpm exec opennextjs-cloudflare build
+Remove-Item Env:OPENNEXT_CLOUDFLARE,Env:SKIP_WRANGLER_CONFIG_CHECK
 ```
 
 - **`OPENNEXT_CLOUDFLARE=1` is not optional**: it makes Next.js use `tsconfig.cf.json`'s stub aliases (redirecting `@/db` to the Cloudflare stub) and makes webpack redirect `@/db` / `@/db/node-singleton` to the stub, so **better-sqlite3 and other Node/SQLite dependencies never enter the Cloudflare Worker bundle**. Without it the build mixes in Node/SQLite runtime code and the deployed Worker fails at runtime.
@@ -213,6 +247,7 @@ pnpm exec wrangler deploy --config wrangler.prod.jsonc
 
 - Order matters: **build first (section 7)** so `.open-next/assets` exists; otherwise `assets.directory .open-next/assets does not exist` fails immediately.
 - Output shows `Uploaded domain-monitor` / `Deployed domain-monitor` plus a version.
+- ⚠️ **Final check before deploying**: the top-level `"name"` in `wrangler.prod.jsonc` must be **your own Worker name** (default `domain-monitor`, or `domain-monitor-yourname` if you used a unique name). `wrangler deploy` **uploads/overwrites** the Worker with that name — **never** overwrite someone else's Worker of the same name.
 
 ### 10. Cron scheduling
 
@@ -227,12 +262,8 @@ pnpm exec wrangler deploy --config wrangler.prod.jsonc
 
 ### 11. Bind a domain
 
-- **Verify first**: `https://domain-monitor.<your-workers-subdomain>.workers.dev` should load.
-- **Then bind a custom domain** (optional, recommended): Dashboard → Workers & Pages → your Worker → **Settings → Domains & Routes → Add → Custom Domain**, enter `monitor.<your-domain>` and confirm the automatic DNS setup; or CLI:
-
-```bash
-pnpm exec wrangler domains add monitor.<your-domain>
-```
+- **Verify first**: `https://domain-monitor.<your-workers-subdomain>.workers.dev` should load (if you used a unique name, use `https://domain-monitor-yourname.<your-workers-subdomain>.workers.dev`).
+- **Then bind a custom domain** (optional, recommended): Dashboard → Workers & Pages → your Worker → **Settings → Domains & Routes → Add → Custom Domain**, enter `monitor.<your-domain>` and confirm the automatic DNS setup.
 
 - ⚠️ **Do not copy the author's domain** (e.g. `monitor.snooze.eu.cc`) — use your own.
 
@@ -254,7 +285,7 @@ Open `https://monitor.<your-domain>` (or the workers.dev URL):
 - [ ] `pnpm exec opennextjs-cloudflare --help` works
 - [ ] Your own D1 created
 - [ ] `wrangler.prod.jsonc` `database_id` is **your** `<YOUR_DATABASE_ID>`
-- [ ] `wrangler d1 migrations apply --remote` succeeded (0000–0007)
+- [ ] `wrangler d1 migrations apply --remote --config wrangler.prod.jsonc` succeeded (0000–0007)
 - [ ] `ENCRYPTION_KEY` configured (`wrangler secret put`)
 - [ ] `SESSION_SECRET` configured (`wrangler secret put`)
 - [ ] `.next` / `.open-next` cleaned
@@ -506,7 +537,7 @@ pnpm db:studio     # Open the visual database browser
 > ⚠️ **`pnpm db:migrate` only touches the local SQLite file (`data/domain-monitor.db`) and has nothing to do with Cloudflare D1.** For a production deployment (Option B) the database is Cloudflare D1, and the migration command is:
 >
 > ```bash
-> pnpm exec wrangler d1 migrations apply domain-monitor --remote
+> pnpm exec wrangler d1 migrations apply domain-monitor --remote --config wrangler.prod.jsonc
 > ```
 >
 > Both paths share the migration files in `src/db/migrations/`, but **do not use `pnpm db:migrate` to migrate D1**. Full flow: see [Cloudflare Production Deployment (Option B)](#cloudflare-production-deployment-option-b).

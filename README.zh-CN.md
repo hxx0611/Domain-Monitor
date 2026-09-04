@@ -58,12 +58,18 @@ pnpm dev
 > 本节面向**第一次接触 Cloudflare Workers / D1 / OpenNext 的新手**。按顺序执行即可，不要跳过任何一步。
 > 完成后你会得到一套**完全属于你自己的** Cloudflare 部署（自己的 Worker、自己的 D1、自己的域名），不会碰任何人的生产资源。
 
+> 🚨🚨🚨 **动手前必读（安全警告）** 🚨🚨🚨
+>
+> 1. **不要直接使用仓库 `wrangler.prod.jsonc` 里的 `database_id`**。那是**作者生产环境的数据库 ID**，在你的账号里根本不存在；部署时会失败，若在作者账号上操作甚至可能影响作者的生产数据。**你必须创建自己的 D1，并把 `database_id` 替换成你自己的**（见第 3 步）。
+> 2. **如果你的 Cloudflare 账号里已经存在名为 `domain-monitor` 的 Worker 或 D1**（例如你之前部署过），`wrangler d1 create domain-monitor` 会冲突，`wrangler deploy` 甚至会**覆盖你已有的同名 Worker**。请改用唯一名称，例如 `domain-monitor-yourname`，并保证 Worker 名、D1 名、`wrangler.prod.jsonc` 中的 `name`/`database_name` 和后续所有命令**使用同一个名称**。
+> 3. **不要对不属于你的 Worker 执行 `wrangler secret put`、`wrangler deploy` 或其他任何修改操作**。执行前先确认当前 Cloudflare 账号是你自己的。
+
 ### 0. 前置条件
 
 - 一个 [Cloudflare](https://dash.cloudflare.com/) 账号（免费即可）
 - 一个域名（可选但推荐；没有也能用 `*.workers.dev` 临时域名验证）
 - Node.js 22+ 与 pnpm（同上）
-- 一台能跑 `bash` 的机器；Windows 用户请见第 11 节
+- 一台能跑 `bash` 的机器；Windows 用户请见第 7 节的 PowerShell 构建命令
 
 ### 1. 克隆并安装依赖
 
@@ -79,12 +85,23 @@ Wrangler（Cloudflare 官方 CLI）与 OpenNext Cloudflare 适配器**不是项�
 pnpm add -D wrangler @opennextjs/cloudflare
 ```
 
-> ⚠️ **pnpm 11 需要放行 workerd 的构建脚本**：wrangler 依赖 `workerd`，pnpm 11 出于安全默认拦截依赖的 postinstall 脚本，安装时可能提示 `ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: workerd`。不放行的话，后续 OpenNext build 会失败。放行方法（二选一）：
+> ⚠️ **pnpm 11 需要放行 workerd 的构建脚本**：wrangler 依赖 `workerd`，pnpm 11 出于安全默认拦截依赖的 postinstall 脚本，安装时可能提示 `ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: workerd`。不放行的话，后续 OpenNext build 会失败。
 >
-> - 编辑 `pnpm-workspace.yaml`，在 `allowBuilds` 中加一行 `workerd: true`（若文件里已有 pnpm 自动生成的 `workerd: set this to true or false` 占位行，把它改成 `workerd: true` 即可）；
-> - 或运行 `pnpm approve-builds` 并按提示允许 `workerd`。
+> **推荐方法（最简单，不会改坏文件）：运行**
 >
-> 之后重跑一次 `pnpm install` 确认不再报错。
+> ```bash
+> pnpm approve-builds
+> ```
+>
+> 在交互提示中选择 `workerd` 并允许，然后重跑 `pnpm install`。
+>
+> **备选方法（手动编辑 `pnpm-workspace.yaml`）**：
+>
+> 1. 打开 `pnpm-workspace.yaml`，查看是否已有 pnpm 自动生成的占位行（例如 `workerd: set this to true or false`）；
+> 2. **如果已有 `workerd` 的条目：直接把它的值改成 `workerd: true`，绝对不要再新增第二行**；
+> 3. **如果没有 `workerd` 条目：在 `allowBuilds:` 下**追加一行 `workerd: true`（注意缩进与已有条目一致）。
+>
+> ⚠️ **不要**在同一个 YAML 文件里重复添加 `allowBuilds:` 或 `workerd:`——重复 key 会导致 `pnpm install` 报 `duplicated mapping key` 错误。编辑后重跑一次 `pnpm install` 确认不再报错。
 
 验证：
 
@@ -115,6 +132,8 @@ export CLOUDFLARE_ACCOUNT_ID=你的账号id   # 从 Dashboard 右下角获取
 
 ### 3. 创建你自己的 D1 数据库 ⚠️ 最重要
 
+> ⚠️ **如果你的账号里已存在名为 `domain-monitor` 的 D1 或 Worker，请改用唯一名称**，例如 `domain-monitor-yourname`（把 `yourname` 换成你自己的标识）。**千万不要覆盖不属于你的资源。** 下文所有命令中的 `domain-monitor` 都要相应替换成你的唯一名称。
+
 ```bash
 pnpm exec wrangler d1 create domain-monitor
 ```
@@ -132,12 +151,14 @@ database_id = "<YOUR_DATABASE_ID>"
 
 > ⚠️ **绝对不要使用仓库 `wrangler.prod.jsonc` 里已有的 `database_id`**（那是作者生产环境的数据库，你的账号里根本不存在它，直接部署会失败；更糟的是，如果你复制了它并在作者账号上操作，可能影响作者生产数据）。**必须把上面输出里的 `<YOUR_DATABASE_ID>` 记下来**。
 
-打开 `wrangler.prod.jsonc`，把 `d1_databases[0].database_id` 替换成你自己的 `<YOUR_DATABASE_ID>`（保持 `binding = "DB"`、`database_name = "domain-monitor"` 不变）。
+打开 `wrangler.prod.jsonc`，把 `d1_databases[0].database_id` 替换成你自己的 `<YOUR_DATABASE_ID>`（保持 `binding = "DB"` 不变）。**如果你使用了唯一名称**（如 `domain-monitor-yourname`），同时把 `d1_databases[0].database_name` 和顶部的 `"name"` 都改成同一个名称——**Worker 名、D1 名、配置文件与后续所有命令必须保持一致**。
 
 ### 4. 执行 D1 migrations
 
+> 以下命令**必须在仓库根目录**（`cd Domain-Monitor` 之后的位置）执行，并**必须带上 `--config wrangler.prod.jsonc`**——仓库根目录没有默认的 `wrangler.jsonc`，不带 `--config` 会报 `No configuration file found`。
+
 ```bash
-pnpm exec wrangler d1 migrations apply domain-monitor --remote
+pnpm exec wrangler d1 migrations apply domain-monitor --remote --config wrangler.prod.jsonc
 ```
 
 - 这是把 `src/db/migrations/` 下的 migration 应用到你**刚刚创建、属于你自己的** D1 数据库（`--remote` 表示云端）。
@@ -149,10 +170,14 @@ pnpm exec wrangler d1 migrations apply domain-monitor --remote
 - `ENCRYPTION_KEY`：用于加密 Telegram token 等敏感数据（AES-256-GCM）。**一旦设置，丢失后已加密的数据将无法恢复**。
 - `SESSION_SECRET`：用于登录会话（cookie）签名。
 
+> 在仓库根目录执行，并**必须带 `--config wrangler.prod.jsonc`**，确保 secret 写入**你自己**的 Worker（即第 3 步里改好名字的那个）。
+
 ```bash
-openssl rand -hex 32 | pnpm exec wrangler secret put ENCRYPTION_KEY
-openssl rand -hex 32 | pnpm exec wrangler secret put SESSION_SECRET
+openssl rand -hex 32 | pnpm exec wrangler secret put ENCRYPTION_KEY --config wrangler.prod.jsonc
+openssl rand -hex 32 | pnpm exec wrangler secret put SESSION_SECRET --config wrangler.prod.jsonc
 ```
+
+> ⚠️ **绝不要对不属于你的 Worker 执行 `wrangler secret put`**——它会把 secret 写入该 Worker 并覆盖已有值。执行前确认 `wrangler.prod.jsonc` 里的 `"name"` 是你自己的 Worker 名。
 
 Windows PowerShell 没有自带 `openssl` 时，先生成 64 位 hex 再手动粘贴：
 
@@ -180,6 +205,15 @@ Remove-Item -Recurse -Force .next,.open-next
 
 ```bash
 OPENNEXT_CLOUDFLARE=1 SKIP_WRANGLER_CONFIG_CHECK=yes pnpm exec opennextjs-cloudflare build
+```
+
+Windows PowerShell（同样的构建命令，环境变量用 `$env:` 设置）：
+
+```powershell
+$env:OPENNEXT_CLOUDFLARE="1"
+$env:SKIP_WRANGLER_CONFIG_CHECK="yes"
+pnpm exec opennextjs-cloudflare build
+Remove-Item Env:OPENNEXT_CLOUDFLARE,Env:SKIP_WRANGLER_CONFIG_CHECK
 ```
 
 - **`OPENNEXT_CLOUDFLARE=1` 不是可选项**：它让 Next.js 使用 `tsconfig.cf.json` 的 stub 别名（把 `@/db` 指向 Cloudflare stub），并让 webpack 把 `@/db` / `@/db/node-singleton` 重定向到 stub，从而保证 **better-sqlite3 等 Node/SQLite 依赖不会进入 Cloudflare Worker bundle**。不设置它，构建产物会混入 Node/SQLite 运行时，部署到 Worker 后直接报错。
@@ -213,6 +247,7 @@ pnpm exec wrangler deploy --config wrangler.prod.jsonc
 
 - 顺序不能反：**必须先完成第 7 步构建**（生成 `.open-next/assets`），再 deploy；否则 `assets.directory .open-next/assets does not exist` 直接失败。
 - 输出会显示 `Uploaded domain-monitor` / `Deployed domain-monitor`，并给出版本号。
+- ⚠️ **部署前最后确认**：`wrangler.prod.jsonc` 顶部的 `"name"` 必须是**你自己的 Worker 名**（默认 `domain-monitor`，若你用了唯一名称则为 `domain-monitor-yourname`）。`wrangler deploy` 会**上传/覆盖**这个名字对应的 Worker——**绝不要**覆盖别人的同名 Worker。
 
 ### 10. Cron 定时触发
 
@@ -227,12 +262,8 @@ pnpm exec wrangler deploy --config wrangler.prod.jsonc
 
 ### 11. 绑定域名
 
-- **先验证**：`https://domain-monitor.<你的workers子域>.workers.dev` 应能打开（账号默认分配）。
-- **再绑定自定义域名**（可选，推荐）：在 Dashboard → Workers & Pages → 你的 Worker → **Settings → Domains & Routes → Add → Custom Domain**，输入 `monitor.<你的域名>` 并确认 DNS 自动配置；或 CLI：
-
-```bash
-pnpm exec wrangler domains add monitor.<你的域名>
-```
+- **先验证**：`https://domain-monitor.<你的workers子域>.workers.dev` 应能打开（账号默认分配；若你用了唯一名称，地址相应为 `https://domain-monitor-yourname.<你的workers子域>.workers.dev`）。
+- **再绑定自定义域名**（可选，推荐）：在 Dashboard → Workers & Pages → 你的 Worker → **Settings → Domains & Routes → Add → Custom Domain**，输入 `monitor.<你的域名>` 并确认 DNS 自动配置。
 
 - ⚠️ **不要照抄作者域名**（`monitor.snooze.eu.cc` 之类），请使用你自己的域名。
 
@@ -254,7 +285,7 @@ pnpm exec wrangler domains add monitor.<你的域名>
 - [ ] `pnpm exec opennextjs-cloudflare --help` 可用
 - [ ] 自己的 D1 已创建
 - [ ] `wrangler.prod.jsonc` 中 `database_id` 已是**你自己的** `<YOUR_DATABASE_ID>`
-- [ ] `wrangler d1 migrations apply --remote` 成功（0000–0007）
+- [ ] `wrangler d1 migrations apply --remote --config wrangler.prod.jsonc` 成功（0000–0007）
 - [ ] `ENCRYPTION_KEY` 已配置（`wrangler secret put`）
 - [ ] `SESSION_SECRET` 已配置（`wrangler secret put`）
 - [ ] `.next` / `.open-next` 已清理
@@ -502,7 +533,7 @@ pnpm db:studio     # 打开可视化数据库浏览器
 > ⚠️ **`pnpm db:migrate` 只作用于本地 SQLite 文件（`data/domain-monitor.db`），与 Cloudflare D1 无关。** 生产部署（Option B）的数据库是 Cloudflare D1，迁移命令是：
 >
 > ```bash
-> pnpm exec wrangler d1 migrations apply domain-monitor --remote
+> pnpm exec wrangler d1 migrations apply domain-monitor --remote --config wrangler.prod.jsonc
 > ```
 >
 > 迁移文件（`src/db/migrations/`）两者共用，但**不要用 `pnpm db:migrate` 去迁移 D1**。完整流程见上文 [Cloudflare Production 部署（Option B）](#cloudflare-production-部署option-b)。
