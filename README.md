@@ -68,7 +68,7 @@ Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested)
 
 - A [Cloudflare](https://dash.cloudflare.com/) account (the free tier is enough)
 - A domain (recommended but optional; you can validate on a `*.workers.dev` temporary domain first)
-- Node.js 22+ and pnpm (same as above)
+- Node.js 22+ and **pnpm 10.14+ (recommend 11; the repo lockfile is v9 and the `allowBuilds` syntax in `pnpm-workspace.yaml` requires pnpm ≥10.14 — pnpm 9 will fail to install)**
 - A machine with `bash`; Windows users see section 7 for the PowerShell build command
 
 ### 1. Clone and install
@@ -85,7 +85,7 @@ Wrangler (Cloudflare's official CLI) and the OpenNext Cloudflare adapter are **n
 pnpm add -D wrangler @opennextjs/cloudflare
 ```
 
-> ⚠️ **pnpm 11 requires approving workerd's build script**: wrangler depends on `workerd`, and pnpm 11 blocks dependency postinstall scripts by default, so you may see `ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: workerd`. If you don't approve it, the OpenNext build below will fail.
+> ⚠️ **pnpm 10.14+ (recommend 11) requires approving workerd's build script**: wrangler depends on `workerd`, and pnpm blocks dependency postinstall scripts by default, so you may see `ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: workerd`. If you don't approve it, the OpenNext build below will fail. If your pnpm is older than 10.14, upgrade first with `corepack use pnpm@11` (or `npm i -g pnpm@11`) — otherwise `allowBuilds`/`approve-builds` are not available.
 >
 > **Recommended (simplest, won't break the file): run**
 >

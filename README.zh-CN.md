@@ -68,7 +68,7 @@ pnpm dev
 
 - 一个 [Cloudflare](https://dash.cloudflare.com/) 账号（免费即可）
 - 一个域名（可选但推荐；没有也能用 `*.workers.dev` 临时域名验证）
-- Node.js 22+ 与 pnpm（同上）
+- Node.js 22+ 与 **pnpm 10.14+（推荐 11；仓库 lockfile 为 v9，且 `pnpm-workspace.yaml` 的 `allowBuilds` 语法需要 pnpm ≥10.14，pnpm 9 会安装失败）**
 - 一台能跑 `bash` 的机器；Windows 用户请见第 7 节的 PowerShell 构建命令
 
 ### 1. 克隆并安装依赖
@@ -85,7 +85,7 @@ Wrangler（Cloudflare 官方 CLI）与 OpenNext Cloudflare 适配器**不是项�
 pnpm add -D wrangler @opennextjs/cloudflare
 ```
 
-> ⚠️ **pnpm 11 需要放行 workerd 的构建脚本**：wrangler 依赖 `workerd`，pnpm 11 出于安全默认拦截依赖的 postinstall 脚本，安装时可能提示 `ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: workerd`。不放行的话，后续 OpenNext build 会失败。
+> ⚠️ **pnpm 10.14+（推荐 11）需要放行 workerd 的构建脚本**：wrangler 依赖 `workerd`，pnpm 出于安全默认拦截依赖的 postinstall 脚本，安装时可能提示 `ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: workerd`。不放行的话，后续 OpenNext build 会失败。若你的 pnpm 低于 10.14，请先用 `corepack use pnpm@11`（或 `npm i -g pnpm@11`）升级，否则 `allowBuilds`/`approve-builds` 不可用。
 >
 > **推荐方法（最简单，不会改坏文件）：运行**
 >
