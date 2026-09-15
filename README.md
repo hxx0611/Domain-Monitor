@@ -2,37 +2,37 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-**Self-hosted domain monitoring for RDAP, DNS, SSL & HTTP.**
+**🛰️ Self-hosted domain monitoring — RDAP, DNS, SSL & HTTP, all in one place.**
 
 [![CI](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/hxx0611/Domain-Monitor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/hxx0611/Domain-Monitor?sort=semver)](https://github.com/hxx0611/Domain-Monitor/releases)
 
-Keep your domains under control: track registration data, detect DNS and SSL changes, catch HTTP failures — and get notified when something changes.
+Keep your domains under control: track registration data, spot DNS and SSL changes, catch HTTP failures — and get a ping the moment something moves. 🔔
 
-- **Event-driven notifications** — changes become events, events become notifications
-- **Telegram / Webhook / Email** delivery to your tools
-- **Manual expiration & reminders** — set expiry dates manually (RDAP or manual source), register a platform, and schedule expiration reminders
-- **Delivery Worker** — one-shot CLI, schedule with cron, no daemon
-- **Admin authentication** — setup wizard, login, one-time recovery code
-- **English / 简体中文** UI
+- ⚡ **Event-driven notifications** — changes become events, events become notifications
+- 📨 **Telegram / Webhook / Email** — delivered straight into the tools you already use
+- 📅 **Manual expiration & reminders** — set expiry dates by hand (RDAP or manual source), register a platform, and schedule expiration reminders
+- 🚚 **Delivery Worker** — one-shot CLI, schedule it with cron, no daemon to babysit
+- 🔐 **Admin authentication** — setup wizard, login, one-time recovery code
+- 🌏 **English / 简体中文** UI
 
 ![Dashboard](docs/screenshots/dashboard-en.png)
 
-> Screenshots reflect an earlier release; the current UI adds admin authentication and Telegram channels.
+> 📸 Screenshots are from an earlier release; today's UI also has admin authentication and Telegram channels.
 
-## Why Domain-Monitor?
+## 🤔 Why Domain-Monitor?
 
-A domain is never just "up or down". The interesting questions are the changes in between:
+A domain is never just "up or down". The interesting stuff is what happens in between:
 
-- **DNS changes** — records added, removed, or changed (A / AAAA / CNAME / MX / NS / TXT / CAA)
-- **SSL changes** — certificates expiring, replaced, or mismatched with the hostname
-- **HTTP failures / recovery** — downtime, status changes, redirect drift
-- **Registration information** — registrar, expiry, nameservers, RDAP status
+- 🧭 **DNS changes** — records added, removed, or swapped (A / AAAA / CNAME / MX / NS / TXT / CAA)
+- 🔒 **SSL changes** — certificates expiring, replaced, or mismatched with the hostname
+- 🌐 **HTTP failures / recovery** — downtime, status changes, redirect drift
+- 🪪 **Registration info** — registrar, expiry, nameservers, RDAP status
 
-Domain Monitor turns those changes into **events**, matches them against your **rules**, and delivers them as **notifications** — so you find out when something _changes_, not when it breaks.
+Domain Monitor turns those changes into **events**, matches them against your **rules**, and delivers them as **notifications** — so you hear about it when something _changes_, not after it breaks. 🎯
 
-## Quick Start
+## ⚡ Quick Start
 
 ```bash
 git clone https://github.com/hxx0611/Domain-Monitor.git
@@ -42,36 +42,38 @@ cp .env.example .env
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Then open [http://localhost:3000](http://localhost:3000) — and you're in. 🎉
 
-Requires **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested) and [pnpm](https://pnpm.io/). Works on Linux, macOS, and Windows. better-sqlite3 ships prebuilt binaries, so a plain `pnpm install` needs no Python or C++ build tools.
+What you need: **Node.js 22 LTS or newer** (22 LTS recommended; 24 / 26 are CI-tested) and [pnpm](https://pnpm.io/). Works on Linux, macOS, and Windows — better-sqlite3 ships prebuilt binaries, so a plain `pnpm install` needs no Python or C++ build tools. 👌
 
-> **There are two ways to run this project — pick one, don't mix the command sets:**
+> 👇 **Two ways to run this project — pick one and stick with it, don't mix the command sets:**
 >
-> - **Option A — Local / Node** (above): `better-sqlite3` + SQLite, `pnpm dev` / `pnpm build` / `pnpm start`, database stored in a local file `data/domain-monitor.db`.
-> - **Option B — Cloudflare Production** (the whole section below): Cloudflare Worker + OpenNext + D1, `custom-worker.ts` + `scheduled()`, database in cloud D1. **If your goal is a Cloudflare deployment, keep reading and do NOT use the local commands above.**
+> - 🖥️ **Option A — Local / Node** (the quick start above): `better-sqlite3` + SQLite, `pnpm dev` / `pnpm build` / `pnpm start`, database lives in a local file `data/domain-monitor.db`.
+> - ☁️ **Option B — Cloudflare Production** (the whole section below): Cloudflare Worker + OpenNext + D1, `custom-worker.ts` + `scheduled()`, database in cloud D1. **If your goal is a Cloudflare deployment, keep scrolling — and do NOT use the local commands above.**
 
 ---
 
 ## Cloudflare Production Deployment (Option B)
 
-> This section is written for people who have **never used Cloudflare Workers / D1 / OpenNext**. Follow every step in order, don't skip any.
-> When done, you will have a **fully self-owned** Cloudflare deployment (your own Worker, your own D1, your own domain) — you will not touch anyone else's production resources.
+> 🧭 This section is written for people who have **never used Cloudflare Workers / D1 / OpenNext**. Just follow the steps in order — no skipping.
+> By the end you'll have a **fully self-owned** Cloudflare deployment (your own Worker, your own D1, your own domain) — you will not touch anyone else's production resources. 🙌
 
 > 🚨🚨🚨 **READ THIS BEFORE YOU START (SAFETY WARNING)** 🚨🚨🚨
 >
-> 1. **Never use the `database_id` from the repo's `wrangler.prod.jsonc`.** It is the **author's production database ID** — it does not exist in your account and deploying with it will fail; if you ever run it against the author's account it could touch the author's production data. **You must create your own D1 and replace `database_id` with yours** (see Step 3).
-> 2. **If a Worker or D1 named `domain-monitor` already exists in your Cloudflare account** (e.g. you deployed before), `wrangler d1 create domain-monitor` will conflict and `wrangler deploy` will **overwrite your existing Worker of the same name**. Use a unique name instead, e.g. `domain-monitor-yourname`, and keep the Worker name, D1 name, the `"name"`/`database_name` in `wrangler.prod.jsonc`, and every command below **consistent**.
-> 3. **Never run `wrangler secret put`, `wrangler deploy`, or any other mutating command against a Worker you don't own.** First confirm the current Cloudflare account is yours.
+> 1. 🚫 **Never use the `database_id` from the repo's `wrangler.prod.jsonc`.** It is the **author's production database ID** — it doesn't exist in your account and deploying with it will fail; and if you ever run it against the author's account, it could touch the author's production data. **You must create your own D1 and replace `database_id` with yours** (see Step 3).
+> 2. ⚠️ **If a Worker or D1 named `domain-monitor` already exists in your Cloudflare account** (e.g. you deployed before), `wrangler d1 create domain-monitor` will conflict and `wrangler deploy` will **overwrite your existing Worker of the same name**. Use a unique name instead, e.g. `domain-monitor-yourname`, and keep the Worker name, the D1 name, the `"name"`/`database_name` in `wrangler.prod.jsonc`, and every command below **consistent**.
+> 3. 🔒 **Never run `wrangler secret put`, `wrangler deploy`, or any other mutating command against a Worker you don't own.** First confirm the current Cloudflare account is yours.
 
-### 0. Prerequisites
+### 0. Prerequisites ✅
 
-- A [Cloudflare](https://dash.cloudflare.com/) account (the free tier is enough)
-- A domain (recommended but optional; you can validate on a `*.workers.dev` temporary domain first)
-- Node.js 22+ and **pnpm 10.14+ (recommend 11; the repo lockfile is v9 and the `allowBuilds` syntax in `pnpm-workspace.yaml` requires pnpm ≥10.14 — pnpm 9 will fail to install)**
-- A machine with `bash`; Windows users see section 7 for the PowerShell build command
+Make sure you've got these ready:
 
-### 1. Clone and install
+- 🌩️ A [Cloudflare](https://dash.cloudflare.com/) account (the free tier is enough)
+- 🌍 A domain (recommended but optional — you can validate on a `*.workers.dev` temporary domain first)
+- 📦 Node.js 22+ and **pnpm 10.14+ (recommend 11; the repo lockfile is v9 and the `allowBuilds` syntax in `pnpm-workspace.yaml` requires pnpm ≥10.14 — pnpm 9 will fail to install)**
+- 💻 A machine with `bash`; Windows users see section 7 for the PowerShell build command
+
+### 1. Clone and install 🛠️
 
 ```bash
 git clone https://github.com/hxx0611/Domain-Monitor.git
@@ -79,7 +81,7 @@ cd Domain-Monitor
 pnpm install
 ```
 
-Wrangler (Cloudflare's official CLI) and the OpenNext Cloudflare adapter are **not** formal project dependencies, so install them as dev dependencies:
+Wrangler (Cloudflare's official CLI) and the OpenNext Cloudflare adapter are **not** formal project dependencies, so grab them as dev dependencies:
 
 ```bash
 pnpm add -D wrangler @opennextjs/cloudflare
@@ -93,7 +95,7 @@ pnpm add -D wrangler @opennextjs/cloudflare
 > pnpm approve-builds
 > ```
 >
-> Select `workerd` when prompted, then re-run `pnpm install`.
+> Select `workerd` when prompted, then re-run `pnpm install`. 👍
 >
 > **Alternative (manual edit of `pnpm-workspace.yaml`)**:
 >
@@ -103,16 +105,16 @@ pnpm add -D wrangler @opennextjs/cloudflare
 >
 > ⚠️ **Do not** add `allowBuilds:` or `workerd:` twice in the same YAML file — duplicate keys make `pnpm install` fail with `duplicated mapping key`. Re-run `pnpm install` after editing and confirm the warning is gone.
 
-Verify:
+Quick sanity check:
 
 ```bash
 pnpm exec wrangler --version            # should print 4.x
 pnpm exec opennextjs-cloudflare --help  # should print help
 ```
 
-### 2. Create a Cloudflare API Token
+### 2. Create a Cloudflare API Token 🔑
 
-Cloudflare Dashboard → **My Profile → API Tokens → Create Token**, use the **“Edit Cloudflare Workers”** template (or create a custom token), and grant at least these permissions (all **Edit**):
+Head to the Cloudflare Dashboard → **My Profile → API Tokens → Create Token**, use the **"Edit Cloudflare Workers"** template (or create a custom token), and grant at least these permissions (all **Edit**):
 
 | Resource | Permission | Purpose |
 |---|---|---|
@@ -121,7 +123,7 @@ Cloudflare Dashboard → **My Profile → API Tokens → Create Token**, use the
 | Zone → Workers Routes (optional) | Edit | Bind a custom domain |
 | Zone → Zone (optional) | Read | Read your domain zone |
 
-Export the token as environment variables (**never put it into the repo, `.env`, `wrangler.prod.jsonc`, or any config file**):
+Then export the token as environment variables — and remember: **never put it into the repo, `.env`, `wrangler.prod.jsonc`, or any config file** 🚫:
 
 ```bash
 export CLOUDFLARE_API_TOKEN=your-token
@@ -132,13 +134,13 @@ export CLOUDFLARE_ACCOUNT_ID=your-account-id   # from the Dashboard footer
 
 ### 3. Create your own D1 database ⚠️ most important
 
-> ⚠️ **If a D1 or Worker named `domain-monitor` already exists in your account, use a unique name** instead, e.g. `domain-monitor-yourname` (replace `yourname` with your own identifier). **Never overwrite resources that are not yours.** Replace `domain-monitor` with your unique name in every command below.
+> ⚠️ **If a D1 or Worker named `domain-monitor` already exists in your account, use a unique name** instead, e.g. `domain-monitor-yourname` (swap `yourname` for your own identifier). **Never overwrite resources that are not yours.** Use that unique name in every command below.
 
 ```bash
 pnpm exec wrangler d1 create domain-monitor
 ```
 
-Output looks like:
+You'll see output like this:
 
 ```
 ✅ Successfully created DB 'domain-monitor' in region APAC
@@ -149,11 +151,11 @@ database_name = "domain-monitor"
 database_id = "<YOUR_DATABASE_ID>"
 ```
 
-> ⚠️ **Never use the `database_id` already present in the repo's `wrangler.prod.jsonc`** (it belongs to the author's production environment; it doesn't exist in your account and deploying with it will fail — or worse, could touch the author's production data if you ever run it against that account). **Copy the `<YOUR_DATABASE_ID>` from the output above.**
+> ⚠️ **Never use the `database_id` already present in the repo's `wrangler.prod.jsonc`** — it belongs to the author's production environment, it doesn't exist in your account, deploying with it will fail (or worse: it could touch the author's production data if you ever run it against that account). **Copy the `<YOUR_DATABASE_ID>` from the output above.**
 
-Open `wrangler.prod.jsonc` and replace `d1_databases[0].database_id` with your own `<YOUR_DATABASE_ID>` (keep `binding = "DB"`). **If you used a unique name** (e.g. `domain-monitor-yourname`), also change `d1_databases[0].database_name` and the top-level `"name"` to that same name — **the Worker name, D1 name, config file, and every command below must be consistent**.
+Now open `wrangler.prod.jsonc` and replace `d1_databases[0].database_id` with your own `<YOUR_DATABASE_ID>` (keep `binding = "DB"`). **If you used a unique name** (e.g. `domain-monitor-yourname`), also change `d1_databases[0].database_name` and the top-level `"name"` to that same name — **the Worker name, D1 name, config file, and every command below must all be consistent**. ✅
 
-### 4. Apply D1 migrations
+### 4. Apply D1 migrations 📜
 
 > Run this **from the repo root** (after `cd Domain-Monitor`) and **always pass `--config wrangler.prod.jsonc`** — there is no default `wrangler.jsonc` at the repo root, so omitting `--config` fails with `No configuration file found`.
 
@@ -163,33 +165,35 @@ pnpm exec wrangler d1 migrations apply domain-monitor --remote --config wrangler
 
 - This applies `src/db/migrations/` to the D1 database **you just created** (`--remote` = cloud).
 - You should see 0000–0007 all applied.
-- ⚠️ **`pnpm db:migrate` is a local SQLite migration and does NOT replace this step**; it never touches Cloudflare D1.
+- ⚠️ **`pnpm db:migrate` is a local SQLite migration and does NOT replace this step** — it never touches Cloudflare D1.
 
-### 5. Set Secrets (ENCRYPTION_KEY / SESSION_SECRET)
+### 5. Set Secrets (ENCRYPTION_KEY / SESSION_SECRET) 🔐
 
-- `ENCRYPTION_KEY`: encrypts sensitive data such as Telegram tokens (AES-256-GCM). **Once set, losing it makes the encrypted data unrecoverable.**
+Two secrets to set up:
+
+- `ENCRYPTION_KEY`: encrypts sensitive data such as Telegram tokens (AES-256-GCM). ⚠️ **Once set, losing it makes the encrypted data unrecoverable.**
 - `SESSION_SECRET`: signs login sessions (cookies).
 
-> Run from the repo root and **always pass `--config wrangler.prod.jsonc`** so the secrets are written to **your** Worker (the one you named in Step 3).
+> Run from the repo root and **always pass `--config wrangler.prod.jsonc`** so the secrets go into **your** Worker (the one you named in Step 3).
 
 ```bash
 openssl rand -hex 32 | pnpm exec wrangler secret put ENCRYPTION_KEY --config wrangler.prod.jsonc
 openssl rand -hex 32 | pnpm exec wrangler secret put SESSION_SECRET --config wrangler.prod.jsonc
 ```
 
-On Windows PowerShell, if `openssl` is not available, generate the 64-hex value first and paste it when prompted:
+On Windows PowerShell, if `openssl` isn't available, generate the 64-hex value first and paste it when prompted:
 
 ```powershell
 -join ([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32) | ForEach-Object { $_.ToString("x2") })
 ```
 
-> Each command prompts for the secret; paste the 64-hex value. These values are **never written to git, README, `.env`, or any config file** — they live only in Cloudflare Secrets.
+> Each command prompts for the secret — just paste the 64-hex value. These values are **never written to git, README, `.env`, or any config file**; they live only in Cloudflare Secrets. 🗝️
 >
 > ⚠️ **Never run `wrangler secret put` against a Worker you don't own** — it writes the secret to that Worker and overwrites any existing value. Before running, confirm the `"name"` in `wrangler.prod.jsonc` is your own Worker name.
 
-### 6. Clean old build cache
+### 6. Clean the old build cache 🧹
 
-**Before every Cloudflare build** (reason in section 8):
+**Before every Cloudflare build** (the reason is in section 8):
 
 ```bash
 rm -rf .next .open-next
@@ -201,7 +205,7 @@ Windows PowerShell:
 Remove-Item -Recurse -Force .next,.open-next
 ```
 
-### 7. Build OpenNext (Cloudflare) artifacts
+### 7. Build OpenNext (Cloudflare) artifacts 🏗️
 
 ```bash
 OPENNEXT_CLOUDFLARE=1 SKIP_WRANGLER_CONFIG_CHECK=yes pnpm exec opennextjs-cloudflare build
@@ -216,20 +220,22 @@ pnpm exec opennextjs-cloudflare build
 Remove-Item Env:OPENNEXT_CLOUDFLARE,Env:SKIP_WRANGLER_CONFIG_CHECK
 ```
 
-- **`OPENNEXT_CLOUDFLARE=1` is not optional**: it makes Next.js use `tsconfig.cf.json`'s stub aliases (redirecting `@/db` to the Cloudflare stub) and makes webpack redirect `@/db` / `@/db/node-singleton` to the stub, so **better-sqlite3 and other Node/SQLite dependencies never enter the Cloudflare Worker bundle**. Without it the build mixes in Node/SQLite runtime code and the deployed Worker fails at runtime.
+What's actually happening here:
+
+- **`OPENNEXT_CLOUDFLARE=1` is not optional** 🚫: it makes Next.js use `tsconfig.cf.json`'s stub aliases (redirecting `@/db` to the Cloudflare stub) and makes webpack redirect `@/db` / `@/db/node-singleton` to the stub, so **better-sqlite3 and other Node/SQLite dependencies never enter the Cloudflare Worker bundle**. Without it, the build mixes in Node/SQLite runtime code and the deployed Worker fails at runtime.
 - `SKIP_WRANGLER_CONFIG_CHECK=yes`: the repo root only has `wrangler.prod.jsonc` (OpenNext only looks for `wrangler.jsonc`/`wrangler.toml` at the root by default), so we skip OpenNext's own config-existence check. **This does not affect `wrangler deploy`** (deploy explicitly uses `--config wrangler.prod.jsonc`).
-- Success: `.open-next/worker.js` and `.open-next/assets/` (with `BUILD_ID`) exist.
+- Success looks like: `.open-next/worker.js` and `.open-next/assets/` (with `BUILD_ID`) exist. ✅
 
-> Why clean the cache first: if you previously ran a plain `pnpm build` without `OPENNEXT_CLOUDFLARE=1`, the `.next` cache may contain Node/SQLite-path build results; reusing it pollutes the Cloudflare artifacts. **Deleting `.next .open-next` before building is a cheap, reliable safeguard.**
+> Why clean the cache first: if you previously ran a plain `pnpm build` without `OPENNEXT_CLOUDFLARE=1`, the `.next` cache may contain Node/SQLite-path build results, and reusing it pollutes the Cloudflare artifacts. **Deleting `.next .open-next` before building is a cheap, reliable safeguard.**
 
-### 8. dry-run / bundle safety verification (recommended)
+### 8. dry-run / bundle safety verification (recommended) 🔍
 
 ```bash
 pnpm exec wrangler deploy --config wrangler.prod.jsonc --dry-run
 ```
 
-- Success: output shows `Read N files from the assets directory .open-next/assets`, `env.DB` / `env.ASSETS` bindings, and `--dry-run: exiting now`.
-- Advanced (optional): export the final bundle and confirm there is no SQLite runtime:
+- Success: the output shows `Read N files from the assets directory .open-next/assets`, `env.DB` / `env.ASSETS` bindings, and `--dry-run: exiting now`.
+- Extra mile (optional): export the final bundle and confirm there's no SQLite runtime in it:
 
 ```bash
 pnpm exec wrangler deploy --config wrangler.prod.jsonc --dry-run --outdir /tmp/dm-bundle
@@ -237,19 +243,19 @@ grep -c "new Database(" /tmp/dm-bundle/custom-worker.js   # expect 0
 grep -c "better-sqlite3" /tmp/dm-bundle/custom-worker.js  # only allowed inside drizzle-orm package path strings
 ```
 
-> Cloudflare deployments use **D1**, not better-sqlite3/SQLite. The bundle must not contain runtime references to `new Database(` / `DATABASE_URL` / `node:sqlite`.
+> Cloudflare deployments use **D1**, not better-sqlite3/SQLite. The bundle must not contain runtime references to `new Database(` / `DATABASE_URL` / `node:sqlite`. 🚫
 
-### 9. Deploy the Worker
+### 9. Deploy the Worker 🚀
 
 ```bash
 pnpm exec wrangler deploy --config wrangler.prod.jsonc
 ```
 
 - Order matters: **build first (section 7)** so `.open-next/assets` exists; otherwise `assets.directory .open-next/assets does not exist` fails immediately.
-- Output shows `Uploaded domain-monitor` / `Deployed domain-monitor` plus a version.
+- You should see `Uploaded domain-monitor` / `Deployed domain-monitor` plus a version. 🎉
 - ⚠️ **Final check before deploying**: the top-level `"name"` in `wrangler.prod.jsonc` must be **your own Worker name** (default `domain-monitor`, or `domain-monitor-yourname` if you used a unique name). `wrangler deploy` **uploads/overwrites** the Worker with that name — **never** overwrite someone else's Worker of the same name.
 
-### 10. Cron scheduling
+### 10. Cron scheduling ⏰
 
 `wrangler.prod.jsonc` already includes:
 
@@ -257,27 +263,27 @@ pnpm exec wrangler deploy --config wrangler.prod.jsonc
 "triggers": { "crons": ["0 * * * *"] }   // every hour on the hour
 ```
 
-- After deployment Cron is **managed automatically by Cloudflare** — no Linux cron needed.
+- After deployment, Cron is **managed automatically by Cloudflare** — no Linux cron needed. 😌
 - The Cloudflare production entry point is the Worker's `scheduled()` (which calls `runOnce` via D1); this is **not** the local `pnpm worker`.
 
-### 11. Bind a domain
+### 11. Bind a domain 🌐
 
 - **Verify first**: `https://domain-monitor.<your-workers-subdomain>.workers.dev` should load (if you used a unique name, use `https://domain-monitor-yourname.<your-workers-subdomain>.workers.dev`).
 - **Then bind a custom domain** (optional, recommended): Dashboard → Workers & Pages → your Worker → **Settings → Domains & Routes → Add → Custom Domain**, enter `monitor.<your-domain>` and confirm the automatic DNS setup.
 
-- ⚠️ **Do not copy the author's domain** (e.g. `monitor.snooze.eu.cc`) — use your own.
+- ⚠️ **Do not copy the author's domain** (e.g. `monitor.snooze.eu.cc`) — use your own. 🚫
 
-### 12. First-visit initialization (/setup)
+### 12. First-visit initialization (/setup) 👋
 
 Open `https://monitor.<your-domain>` (or the workers.dev URL):
 
-1. If unconfigured you are redirected to `/setup` → create the admin account
-2. **Save the recovery code** (the only credential to reset your password; shown once)
+1. If unconfigured, you're redirected to `/setup` → create the admin account
+2. 💾 **Save the recovery code** — it's the only credential to reset your password, and it's shown once
 3. Log in
-4. **Notifications → add a Telegram channel**: paste the Bot Token; the system verifies it via Telegram `getMe`, then stores it encrypted with AES-256-GCM
-5. **The Telegram Bot Token does not go into `.env`** — it lives only in your D1 database (encrypted)
+4. 📨 **Notifications → add a Telegram channel**: paste the Bot Token; the system verifies it via Telegram `getMe`, then stores it encrypted with AES-256-GCM
+5. 🔒 **The Telegram Bot Token does not go into `.env`** — it lives only in your D1 database (encrypted)
 
-### 13. Deployment success Checklist
+### 13. Deployment success Checklist ✅
 
 - [ ] Git clone completed
 - [ ] `pnpm install` completed
@@ -301,79 +307,81 @@ Open `https://monitor.<your-domain>` (or the workers.dev URL):
 - [ ] Recovery code saved
 - [ ] Telegram channel verified
 
+🎉 All boxes ticked? Your deployment is done. Well played.
+
 ---
 
 [Back to top](#domain-monitor)
 
-## Features
+## ✨ Features
 
-### Domain Intelligence
+### 🧠 Domain Intelligence
 
 - Manage all monitored domains in one place — self-hosted local storage (SQLite)
 - Automatic RDAP lookup on creation: registrar, expiry, nameservers, RDAP status (IANA bootstrap, 590+ TLDs)
-- **Ownership-aware RDAP fallback**: when a subdomain has no independent RDAP object, the query falls back to the registered domain and reports `ownership = parent` — the parent's expiration/registrar/nameservers are **never** stored on the subdomain's own fields, and the UI shows `Unavailable` for the subdomain's registration info
-- **Manual expiration** (source = `manual`): set registration date, expiration date, registration platform and management URL by hand — for domains whose RDAP data is unreliable, missing, or simply not what you want to display. Manual dates are **never overwritten** by RDAP refreshes (the refresh only updates RDAP metadata, or clears it for `no-object` / parent results)
-- **Expiration reminders**: per-domain reminder rules (e.g. 30 days before expiry); the notification worker evaluates them and emits `expiration_reminder` events (see **Delivery Worker** below for the current availability note)
-- Domain normalization and validation (accepts `https://example.com/path`, stores `example.com`)
-- Manual RDAP refresh anytime
+- 🔎 **Ownership-aware RDAP fallback**: when a subdomain has no independent RDAP object, the query falls back to the registered domain and reports `ownership = parent` — the parent's expiration/registrar/nameservers are **never** stored on the subdomain's own fields, and the UI shows `Unavailable` for the subdomain's registration info
+- ✋ **Manual expiration** (source = `manual`): set registration date, expiration date, registration platform and management URL by hand — perfect for domains whose RDAP data is unreliable, missing, or simply not what you want to display. Manual dates are **never overwritten** by RDAP refreshes (the refresh only updates RDAP metadata, or clears it for `no-object` / parent results)
+- ⏳ **Expiration reminders**: per-domain reminder rules (e.g. 30 days before expiry); the notification worker evaluates them and emits `expiration_reminder` events (see **Delivery Worker** below for the current availability note)
+- 🧹 Domain normalization and validation (accepts `https://example.com/path`, stores `example.com`)
+- 🔄 Manual RDAP refresh anytime
 
-### DNS Monitoring
+### 🧭 DNS Monitoring
 
 - DNS-over-HTTPS based monitoring (Cloudflare DoH, resolver swappable via `DNS_DOH_ENDPOINT`)
 - Tracks A / AAAA / CNAME / MX / NS / TXT / CAA records
 - Historical snapshots with added / removed record detection (TTL-only changes ignored)
-- Atomic failed-check handling — a partial failure never deletes old data
+- 🛡️ Atomic failed-check handling — a partial failure never deletes old data
 
-### SSL Monitoring
+### 🔒 SSL Monitoring
 
 - TLS certificate inspection (Node.js native TLS)
 - Expiration tracking: valid / expires soon / expired
 - Hostname mismatch detection (SAN vs queried domain)
 - Certificate fingerprint / replacement detection, TLS version and cipher information
 
-### HTTP Monitoring
+### 🌐 HTTP Monitoring
 
 - HTTP status classification and response-time tracking
 - Redirect tracking (count and final URL)
 - Connection-failure detection (down)
 - Per-check history
 
-### Notifications
+### 🔔 Notifications
 
 - Domain lifecycle events from DNS / SSL / HTTP checks
 - Channels: **Telegram**, **Email API**, and **Webhook**
-- **Test notifications** (v0.8.4): admin-triggered `Send Test Notification` on each Telegram channel — exactly one event + one delivery + one message through the existing factory/sender/encrypted-secret pipeline, explicitly labelled `Test Notification`, never routed through rules or expiry logic
-- **Channel-level notification language** (v0.8.6): per-channel `language` (`en` / `zh-CN`) selected in the channel edit form; message template and event labels are localized, machine state values stay canonical
-- **Channel-level notification timezone** (v0.8.7): per-channel IANA `timezone` (default `UTC`) selected in the channel edit form; the Telegram message timestamp renders as `YYYY-MM-DD HH:mm:ss (Timezone)` via `Intl.DateTimeFormat` (DST-aware), internal storage stays UTC
+- 🧪 **Test notifications** (v0.8.4): admin-triggered `Send Test Notification` on each Telegram channel — exactly one event + one delivery + one message through the existing factory/sender/encrypted-secret pipeline, explicitly labelled `Test Notification`, never routed through rules or expiry logic
+- 🌏 **Channel-level notification language** (v0.8.6): per-channel `language` (`en` / `zh-CN`) selected in the channel edit form; message template and event labels are localized, machine state values stay canonical
+- 🕐 **Channel-level notification timezone** (v0.8.7): per-channel IANA `timezone` (default `UTC`) selected in the channel edit form; the Telegram message timestamp renders as `YYYY-MM-DD HH:mm:ss (Timezone)` via `Intl.DateTimeFormat` (DST-aware), internal storage stays UTC
 - Rule-based delivery matching (global or per-domain rules, by source / event type — including the `expiration_reminder` event type)
-- Notification configuration UI — channel CRUD (create / edit / toggle / delete), rule CRUD
-- Telegram bot tokens validated via `getMe` (server-side) and stored **AES-256-GCM encrypted** (`ENCRYPTION_KEY`), with legacy `TELEGRAM_BOT_TOKEN` env fallback
-- Delivery history with status tracking (pending / sending / sent / failed) and manual retry
+- 🎛️ Notification configuration UI — channel CRUD (create / edit / toggle / delete), rule CRUD
+- 🔐 Telegram bot tokens validated via `getMe` (server-side) and stored **AES-256-GCM encrypted** (`ENCRYPTION_KEY`), with legacy `TELEGRAM_BOT_TOKEN` env fallback
+- 📬 Delivery history with status tracking (pending / sending / sent / failed) and manual retry
 
-### Admin Authentication
+### 🧑‍💼 Admin Authentication
 
 - One-time **setup wizard** (`/setup`) — creates the admin password (scrypt-hashed) and a one-time **recovery code**
 - **HMAC-signed session cookie** — login / logout, protected pages and Server Actions
-- Password recovery rotates the session secret, invalidating all old sessions
+- 🔄 Password recovery rotates the session secret, invalidating all old sessions
 
-### Delivery Worker
+### 🚚 Delivery Worker
 
 > **Availability note (v0.8.3):** the worker is **enabled in production** — the hourly watchdog (`scripts/worker-watchdog.sh`) runs as a single instance and ticks every hour (`tsx --conditions=react-server scripts/worker.ts --limit 50`). Expiration-reminder evaluation and delivery are live; real notification delivery is exercised only through explicitly approved safety gates (no real Telegram/Webhook/Email sends have been performed as part of this release).
 
 - One-shot CLI (`pnpm worker`) — schedule with cron or the bundled watchdog, no daemon, no HTTP endpoint
-- **Automatic Event → Delivery generation inside the check transaction** (atomic)
-- **Expiration reminders**: `evaluateExpirationReminders()` runs inside the worker tick and emits `expiration_reminder` events (source `expiration`) for domains whose reminder day has arrived, deduplicated so a domain is reminded once per day
-- **Event → Delivery together**: `insertEventsAndGenerateDeliveries` creates the event and its deliveries in one step; concurrent ticks are safe (SQLite CAS) — at most one event, one delivery and one sender invocation per reminder per day
-- Stale `sending` recovery (crash-safe) and concurrent-worker safety (SQLite CAS)
+- ⚙️ **Automatic Event → Delivery generation inside the check transaction** (atomic)
+- ⏳ **Expiration reminders**: `evaluateExpirationReminders()` runs inside the worker tick and emits `expiration_reminder` events (source `expiration`) for domains whose reminder day has arrived, deduplicated so a domain is reminded once per day
+- 🔗 **Event → Delivery together**: `insertEventsAndGenerateDeliveries` creates the event and its deliveries in one step; concurrent ticks are safe (SQLite CAS) — at most one event, one delivery and one sender invocation per reminder per day
+- 🛡️ Stale `sending` recovery (crash-safe) and concurrent-worker safety (SQLite CAS)
 
-### Bilingual UI
+### 🌏 Bilingual UI
 
 - **English / 简体中文** language switching in the header
 - Locale-aware UI dictionary; preference stored in the `domain-monitor-locale` cookie (`en` / `zh-CN`, default `en`)
 - Cookie + Server Action + `router.refresh()` — no URL prefix, no middleware, no third-party i18n dependency
-- Machine values (delivery status, event types, sources) are never translated
+- 🤖 Machine values (delivery status, event types, sources) are never translated
 
-## How It Works
+## ⚙️ How It Works
 
 ```mermaid
 flowchart LR
@@ -384,60 +392,60 @@ flowchart LR
     E --> F[Telegram / Webhook / Email]
 ```
 
-A check writes its snapshot, its events, and the matching pending deliveries in **one transaction**. The delivery worker claims pending deliveries (atomic CAS) and calls the senders. Retrying a failed delivery from the UI works end-to-end.
+A check writes its snapshot, its events, and the matching pending deliveries in **one transaction**. The delivery worker claims pending deliveries (atomic CAS) and calls the senders. Retrying a failed delivery from the UI works end-to-end. 💪
 
 ![Domain details — RDAP, DNS changes, SSL certificates, HTTP status](docs/screenshots/domain-details-en.png)
 
-## Security by Design
+## 🛡️ Security by Design
 
-- **Admin authentication** — protected pages and Server Actions; scrypt password hashing; signed session cookies; recovery-code rotation invalidates old sessions
-- **Encrypted secret storage** — Telegram bot tokens are stored **AES-256-GCM encrypted** (`iv:tag:ciphertext`, keyed by `ENCRYPTION_KEY`); tokens are never rendered back into HTML/RSC/client bundles — only CONFIGURED/NOT CONFIGURED status is exposed
-- **SSRF protection** — outbound requests are HTTPS-only, with per-redirect re-validation
-- **HTTPS-only** outbound traffic, **redirect re-validation** on every hop
-- **Secret isolation** — API keys / webhook secrets / bot tokens never appear in the UI, worker output, or client bundle
-- **at-least-once** delivery with stable `eventId` + `deliveryId` for receiver-side deduplication
+- 🔐 **Admin authentication** — protected pages and Server Actions; scrypt password hashing; signed session cookies; recovery-code rotation invalidates old sessions
+- 🗝️ **Encrypted secret storage** — Telegram bot tokens are stored **AES-256-GCM encrypted** (`iv:tag:ciphertext`, keyed by `ENCRYPTION_KEY`); tokens are never rendered back into HTML/RSC/client bundles — only CONFIGURED/NOT CONFIGURED status is exposed
+- 🚫 **SSRF protection** — outbound requests are HTTPS-only, with per-redirect re-validation
+- 🔒 **HTTPS-only** outbound traffic, **redirect re-validation** on every hop
+- 🙈 **Secret isolation** — API keys / webhook secrets / bot tokens never appear in the UI, worker output, or client bundle
+- ➕ **at-least-once** delivery with stable `eventId` + `deliveryId` for receiver-side deduplication
 
-## Built for Reliability
+## 💪 Built for Reliability
 
-- **849 tests** covering services, state machines, senders, the delivery worker, manual expiration & reminders, worker runtime fixes (barrel import + delivery generation), the i18n core, admin authentication, domain/DNS action coverage, and the production backup mechanism
-- **780 tests** (v0.8.4) adds the controlled test-notification action contract (authorization, channel validation, dedup, single-send limits, leakage) and its real-DB integration path (encrypted-secret chain, sender success/failure, no domain/rule mutation)
-- **813 tests** (v0.8.7) adds notification timezone IANA validation + `Intl` rendering
-- **849 tests** (v0.8.8) adds domain/DNS action coverage (Phase 13B, 36 tests)
-- **SSRF-guarded** webhook and email senders
-- **SQLite concurrency tested** — atomic claim (CAS) + `busy_timeout = 5000`
-- **Self-hosted** — your data stays on your machine
+- 🧪 **849 tests** covering services, state machines, senders, the delivery worker, manual expiration & reminders, worker runtime fixes (barrel import + delivery generation), the i18n core, admin authentication, domain/DNS action coverage, and the production backup mechanism
+- 🧪 **780 tests** (v0.8.4) adds the controlled test-notification action contract (authorization, channel validation, dedup, single-send limits, leakage) and its real-DB integration path (encrypted-secret chain, sender success/failure, no domain/rule mutation)
+- 🧪 **813 tests** (v0.8.7) adds notification timezone IANA validation + `Intl` rendering
+- 🧪 **849 tests** (v0.8.8) adds domain/DNS action coverage (Phase 13B, 36 tests)
+- 🛡️ **SSRF-guarded** webhook and email senders
+- 🔒 **SQLite concurrency tested** — atomic claim (CAS) + `busy_timeout = 5000`
+- 🏠 **Self-hosted** — your data stays on your machine
 
-## Current Status
+## 📊 Current Status
 
 **Current release: v0.8.9 — Documentation & Operations Closeout** (v0.8.8 — Domain/DNS Action Coverage, Notification Timezone, Windows CI Fix)
 
 Supported today:
 
-- Domain management
-- RDAP information
-- **Manual expiration** — set registration / expiration dates, registration platform and management URL manually; manual dates survive RDAP refreshes
-- **Expiration reminders** — per-domain reminder days, evaluated by the worker as `expiration_reminder` events
-- DNS monitoring
-- SSL certificate monitoring
-- HTTP health checks
-- Notification system (telegram / email / webhook channels, rules — including `expiration_reminder` — delivery history, manual retry)
-- Notification configuration UI (channel & rule CRUD, Telegram token setup with `getMe` verification)
-- Delivery worker (automatic Event → Delivery → Send pipeline; **enabled in production** via the hourly watchdog — see the availability note above)
-- Admin authentication (setup wizard, login/logout, recovery code, protected pages)
-- Encrypted secret storage (AES-256-GCM, `ENCRYPTION_KEY`, legacy env fallback)
-- Bilingual UI (English / 简体中文, cookie-based locale switching)
+- ✅ Domain management
+- ✅ RDAP information
+- ✋ **Manual expiration** — set registration / expiration dates, registration platform and management URL manually; manual dates survive RDAP refreshes
+- ⏳ **Expiration reminders** — per-domain reminder days, evaluated by the worker as `expiration_reminder` events
+- ✅ DNS monitoring
+- ✅ SSL certificate monitoring
+- ✅ HTTP health checks
+- ✅ Notification system (telegram / email / webhook channels, rules — including `expiration_reminder` — delivery history, manual retry)
+- ✅ Notification configuration UI (channel & rule CRUD, Telegram token setup with `getMe` verification)
+- 🚚 Delivery worker (automatic Event → Delivery → Send pipeline; **enabled in production** via the hourly watchdog — see the availability note above)
+- 🔐 Admin authentication (setup wizard, login/logout, recovery code, protected pages)
+- 🗝️ Encrypted secret storage (AES-256-GCM, `ENCRYPTION_KEY`, legacy env fallback)
+- 🌏 Bilingual UI (English / 简体中文, cookie-based locale switching)
 
-DNS, SSL and HTTP checks are currently manual; automatic scheduling is planned for a future release.
+📌 DNS, SSL and HTTP checks are currently manual; automatic scheduling is planned for a future release.
 
 The notification pipeline is fully closed: a check writes its snapshot, its events, and the matching pending deliveries in ONE transaction; the delivery worker consumes those pending deliveries and calls the senders. Retrying a failed delivery from the UI works end-to-end.
 
-## Delivery Worker (V0.7)
+## 🚚 Delivery Worker (V0.7)
 
 ![Notifications — channels, rules, delivery history with Retry](docs/screenshots/notifications-en.png)
 
-The delivery worker is a **one-shot CLI process** that consumes the `pending` deliveries the notification pipeline records. It is the recommended way to run notifications on a self-hosted deployment.
+The delivery worker is a **one-shot CLI process** that consumes the `pending` deliveries the notification pipeline records. It's the recommended way to run notifications on a self-hosted deployment. 👇
 
-### Run it
+### ▶️ Run it
 
 ```bash
 pnpm worker             # one tick, up to 50 pending deliveries
@@ -458,9 +466,9 @@ Summary shape (stable):
 - `attempted` — deliveries this tick tried to deliver
 - `sent` / `failed` / `skipped` — outcomes (`skipped` = a concurrent worker claimed it first)
 
-The worker never prints secrets: no API keys, no `Authorization`/`Bearer` values, no channel config JSON, no endpoint query strings.
+🔒 The worker never prints secrets: no API keys, no `Authorization`/`Bearer` values, no channel config JSON, no endpoint query strings.
 
-### Scheduling with cron
+### ⏰ Scheduling with cron
 
 Recommended: the CLI worker plus an external scheduler (system cron or equivalent). Example crontab entry — adjust the path for your deployment:
 
@@ -471,23 +479,23 @@ Recommended: the CLI worker plus an external scheduler (system cron or equivalen
 - Runs every minute; each run is a fresh one-shot process.
 - An empty queue exits immediately.
 - Default cap: 50 pending deliveries per tick.
-- **No public HTTP endpoint is added** — scheduling stays fully external (no webhook scheduler endpoint, no serverless cron).
-- Overlapping cron instances are safe: SQLite CAS guarantees only one worker ever claims a given delivery. Keep it at once per minute to avoid extra DB contention.
+- 🚫 **No public HTTP endpoint is added** — scheduling stays fully external (no webhook scheduler endpoint, no serverless cron).
+- 🔒 Overlapping cron instances are safe: SQLite CAS guarantees only one worker ever claims a given delivery. Keep it at once per minute to avoid extra DB contention.
 
-### Runtime semantics
+### 🧠 Runtime semantics
 
 - **Check → Event** — recorded by the V0.6 pipeline (per-check transaction, deduplicated).
 - **Event → Delivery** — automatic since V0.7: the check transaction creates the matching pending deliveries for every newly-recorded event (rule-matched, channel-deduplicated). Duplicate events (same dedup key) never re-generate deliveries.
 - **Delivery → Send** — the worker claims `pending` deliveries (atomic CAS) and calls the existing senders.
-- **failed** — the worker does **not** auto-retry failed deliveries; no backoff, no max-attempts.
-- **retry** — explicit only: `retryDelivery()` / the notification UI.
-- **stale sending** — the worker runs `recoverStaleSending()` at the start of every tick; the default stale threshold is **5 minutes**.
-- **at-least-once** — a crash mid-send leaves `sending`, which the next tick recovers and sends again, so a delivery can be sent more than once. Receivers must deduplicate using the stable `eventId` + `deliveryId` in the payload. This is at-least-once, **not** exactly-once.
-- **historical events** — V0.7 does NOT backfill deliveries for events recorded before the upgrade; the worker only consumes the current `pending` queue.
+- ❌ **failed** — the worker does **not** auto-retry failed deliveries; no backoff, no max-attempts.
+- 🔁 **retry** — explicit only: `retryDelivery()` / the notification UI.
+- ⏱️ **stale sending** — the worker runs `recoverStaleSending()` at the start of every tick; the default stale threshold is **5 minutes**.
+- ➕ **at-least-once** — a crash mid-send leaves `sending`, which the next tick recovers and sends again, so a delivery can be sent more than once. Receivers must deduplicate using the stable `eventId` + `deliveryId` in the payload. This is at-least-once, **not** exactly-once.
+- 📜 **historical events** — V0.7 does NOT backfill deliveries for events recorded before the upgrade; the worker only consumes the current `pending` queue.
 - SQLite `busy_timeout = 5000` is enabled so the worker and the web app can write concurrently without immediate `SQLITE_BUSY` failures.
 - No daemon, no automatic retry, no backoff, no max-attempts, no distributed queue (Redis/Kafka), no HTTP scheduler endpoint, no serverless scheduler, no SLA/uptime monitoring.
 
-## Testing
+## 🧪 Testing
 
 ```bash
 pnpm test
@@ -503,7 +511,7 @@ pnpm format:check
 pnpm build
 ```
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 UI (Next.js App Router)
@@ -522,9 +530,9 @@ SQLite
 - **Cloudflare DoH** for DNS queries (resolver swappable via `DNS_DOH_ENDPOINT`)
 - **IANA RDAP bootstrap** for registration data
 
-See [docs/development.md](docs/development.md) for detailed development notes.
+See [docs/development.md](docs/development.md) for detailed development notes. 📚
 
-## Database
+## 🗄️ Database
 
 SQLite via Drizzle ORM (local/Node path — Option A). Manage the local schema with the built-in commands:
 
@@ -542,7 +550,7 @@ pnpm db:studio     # Open the visual database browser
 >
 > Both paths share the migration files in `src/db/migrations/`, but **do not use `pnpm db:migrate` to migrate D1**. Full flow: see [Cloudflare Production Deployment (Option B)](#cloudflare-production-deployment-option-b).
 
-## Roadmap
+## 🗺️ Roadmap
 
 - [x] **V0.1** — Domain management
 - [x] **V0.2** — RDAP / WHOIS integration
@@ -566,15 +574,15 @@ pnpm db:studio     # Open the visual database browser
 - [x] **Audit (2026-08-20)** — Phase 13A security/reliability audit (PASS), Phase 13D SQLite→NFS migration preflight (**blocked**: current NFSv3 `nolock` mount is not suitable for a SQLite primary DB)
 - [x] **V0.8.9** — Documentation & Operations Closeout (Phase 13A audit report archived; operations/disaster-recovery/handover docs updated; backup strategy + SQLite/NFS restriction documented)
 
-## Production persistence (current)
+## 💾 Production persistence (current)
 
-- **Production SQLite remains on local `/tmp` overlay**: `/tmp/domain-monitor/data/domain-monitor.db`.
-- **Production backups are stored on NFS persistent storage** (daily, 7-day retention).
-- **WARNING**: the current NFSv3 + `nolock` mount is **NOT approved** for hosting the production SQLite database (locking / fsync / hard-mount semantics). PostgreSQL or an appropriate persistent local volume remains a future architecture option — **not implemented**.
+- 📍 **Production SQLite remains on local `/tmp` overlay**: `/tmp/domain-monitor/data/domain-monitor.db`.
+- ☁️ **Production backups are stored on NFS persistent storage** (daily, 7-day retention).
+- ⚠️ **WARNING**: the current NFSv3 + `nolock` mount is **NOT approved** for hosting the production SQLite database (locking / fsync / hard-mount semantics). PostgreSQL or an appropriate persistent local volume remains a future architecture option — **not implemented**.
 
-## Contributing
+## 🤝 Contributing
 
-Contributions are welcome.
+Contributions are welcome! 🎉
 
 ```bash
 pnpm install
@@ -585,6 +593,6 @@ pnpm build
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
 
-## License
+## 📄 License
 
 [MIT](LICENSE)
